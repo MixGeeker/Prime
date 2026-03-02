@@ -87,4 +87,27 @@ export class TypeOrmDraftRepository implements DefinitionDraftRepositoryPort {
       .getRepository(DefinitionDraftEntity)
       .delete({ definitionId });
   }
+
+  async deleteOlderThan(params: {
+    cutoff: Date;
+    limit: number;
+  }): Promise<number> {
+    const rows: unknown = await this.manager.query(
+      `
+        WITH candidates AS (
+          SELECT definition_id
+          FROM definition_drafts
+          WHERE updated_at < $1
+          ORDER BY updated_at ASC
+          LIMIT $2
+        )
+        DELETE FROM definition_drafts d
+        USING candidates c
+        WHERE d.definition_id = c.definition_id
+        RETURNING d.definition_id
+      `,
+      [params.cutoff, params.limit],
+    );
+    return Array.isArray(rows) ? rows.length : 0;
+  }
 }

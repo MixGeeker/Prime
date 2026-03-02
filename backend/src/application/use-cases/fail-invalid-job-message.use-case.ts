@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'crypto';
+import { MetricsService } from '../../observability/metrics/metrics.service';
 import { jcsCanonicalize } from '../hashing/jcs';
 import { UNIT_OF_WORK, type UnitOfWorkPort } from '../ports/unit-of-work.port';
 
@@ -34,11 +35,13 @@ export type FailInvalidJobMessageResult =
 export class FailInvalidJobMessageUseCase {
   constructor(
     @Inject(UNIT_OF_WORK) private readonly unitOfWork: UnitOfWorkPort,
+    private readonly metricsService: MetricsService,
   ) {}
 
   async execute(
     command: FailInvalidJobMessageCommand,
   ): Promise<FailInvalidJobMessageResult> {
+    const startedAt = process.hrtime.bigint();
     const requestHash = sha256Hex(jcsCanonicalize(command.rawPayload));
     const outboxEventId = randomUUID();
 
@@ -94,6 +97,7 @@ export class FailInvalidJobMessageUseCase {
     );
 
     if (result.kind === 'duplicate' || result.kind === 'conflict') {
+      this.metricsService.incJobProcessed(result.kind);
       return {
         kind: result.kind,
         jobId: command.jobId,
@@ -101,6 +105,12 @@ export class FailInvalidJobMessageUseCase {
         outboxEventId: null,
       };
     }
+
+    const durationSeconds =
+      Number(process.hrtime.bigint() - startedAt) / 1_000_000_000;
+    this.metricsService.incJobProcessed('failed');
+    this.metricsService.incJobFailed('INVALID_MESSAGE');
+    this.metricsService.observeJobExecutionDuration('failed', durationSeconds);
 
     return {
       kind: 'failed',

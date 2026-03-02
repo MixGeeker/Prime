@@ -27,4 +27,7 @@ export interface DefinitionDraftRepositoryPort {
   getDraft(definitionId: string): Promise<DefinitionDraft | null>;
   upsertDraft(params: UpsertDefinitionDraftParams): Promise<DefinitionDraft>;
   deleteDraft(definitionId: string): Promise<void>;
+
+  /** 清理过期草稿（按 updatedAt）。返回实际删除条数。 */
+  deleteOlderThan(params: { cutoff: Date; limit: number }): Promise<number>;
 }

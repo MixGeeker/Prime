@@ -35,4 +35,14 @@ export interface JobRepositoryPort {
     errorMessage: string;
     failedAt: Date;
   }): Promise<void>;
+
+  /**
+   * 清空旧 job 的大字段快照（inputs_snapshot_json / outputs_json），用于 retention。
+   * - 不删除 jobs 记录（避免破坏幂等与追溯）
+   * - 返回实际更新条数
+   */
+  clearSnapshotsOlderThan(params: {
+    cutoff: Date;
+    limit: number;
+  }): Promise<number>;
 }

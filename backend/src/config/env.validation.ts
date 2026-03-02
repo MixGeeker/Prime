@@ -4,6 +4,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsBoolean,
   Max,
   Min,
   validateSync,
@@ -45,6 +46,7 @@ export class EnvVars {
    * Worker 角色：
    * - `consumer`：消费 `compute.job.requested.v1`（M6）
    * - `dispatcher`：Outbox 发布（M7）
+   * - `maintenance`：运维/清理类任务（M9）
    * - `consumer,dispatcher`：同进程同时启用（默认）
    */
   @IsOptional()
@@ -78,6 +80,13 @@ export class EnvVars {
   @Max(1000)
   MQ_PREFETCH: number = 10;
 
+  /** MQ 最大消息体字节数（过大直接拒绝并进入 DLQ） */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100_000_000)
+  MQ_MAX_MESSAGE_BYTES: number = 1_000_000;
+
   /** Outbox dispatcher：每次抓取/租约的最大记录数 */
   @IsOptional()
   @IsInt()
@@ -106,6 +115,45 @@ export class EnvVars {
   @Max(10_000)
   OUTBOX_DISPATCH_MAX_ATTEMPTS: number = 25;
 
+  /** Prometheus metrics 是否启用 */
+  @IsOptional()
+  @IsBoolean()
+  METRICS_ENABLED: boolean = true;
+
+  /** Prometheus metrics 路径（HTTP 进程与 Worker metrics 端口都复用） */
+  @IsOptional()
+  @IsString()
+  METRICS_PATH: string = '/metrics';
+
+  /** 是否启用 prom-client 默认进程指标（CPU/内存/事件循环等） */
+  @IsOptional()
+  @IsBoolean()
+  METRICS_COLLECT_DEFAULT: boolean = true;
+
+  /** Worker 进程暴露 metrics 的 HTTP 端口（Worker 采用 ApplicationContext，不占用 HTTP_PORT） */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(65535)
+  WORKER_METRICS_PORT: number = 4020;
+
+  /** 是否允许启用危险运维端点（例如 DLQ replay） */
+  @IsOptional()
+  @IsBoolean()
+  ADMIN_DANGEROUS_ENDPOINTS_ENABLED: boolean = false;
+
+  /** Admin API token（危险端点必须携带 Authorization: Bearer <token>） */
+  @IsOptional()
+  @IsString()
+  ADMIN_API_TOKEN: string = '';
+
+  /** DLQ replay 单次最大回放条数（硬上限） */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10_000)
+  DLQ_REPLAY_MAX_LIMIT: number = 200;
+
   /** 应用日志级别（映射到 Nest logger levels） */
   @IsOptional()
   @IsIn(LOG_LEVELS)
@@ -122,6 +170,29 @@ export class EnvVars {
   @IsInt()
   @Min(1)
   JOBS_SNAPSHOT_TTL_DAYS: number = 180;
+
+  /** definition drafts 保留天数（超过后可自动清理） */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  DRAFT_TTL_DAYS: number = 30;
+
+  /** retention cleaner 是否启用（仅当 WORKER_ROLES 含 maintenance 时生效） */
+  @IsOptional()
+  @IsBoolean()
+  RETENTION_CLEANER_ENABLED: boolean = true;
+
+  /** retention cleaner cron（带秒字段，默认每 10 分钟） */
+  @IsOptional()
+  @IsString()
+  RETENTION_CLEANER_CRON: string = '0 */10 * * * *';
+
+  /** retention 每批处理条数（避免长事务） */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10_000)
+  RETENTION_BATCH_SIZE: number = 500;
 }
 
 export function validateEnv(

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { DbModule } from '../adapters/outbound/db/db.module';
+import { MetricsModule } from '../observability/metrics/metrics.module';
 import { ExecuteJobUseCase } from './use-cases/execute-job.use-case';
 import { FailInvalidJobMessageUseCase } from './use-cases/fail-invalid-job-message.use-case';
 import { NodeCatalogService } from './catalog/node-catalog.service';
@@ -25,7 +26,7 @@ import { RUNNER_PORT } from './ports/runner.port';
  * - 通过 ports 依赖外部系统（DB/MQ/Runner/Hasher 等）
  */
 @Module({
-  imports: [DbModule],
+  imports: [DbModule, MetricsModule],
   providers: [
     ExecuteJobUseCase,
     FailInvalidJobMessageUseCase,

@@ -53,6 +53,62 @@ export class TypeOrmOutboxRepository implements OutboxRepositoryPort {
     return mapOutbox(saved);
   }
 
+  async countPending(): Promise<number> {
+    const rows: unknown = await this.manager.query(
+      `
+        SELECT COUNT(*)::int AS count
+        FROM outbox
+        WHERE status = 'pending'
+      `,
+    );
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return 0;
+    }
+    const value = (rows[0] as { count?: unknown }).count;
+    return typeof value === 'number' ? value : Number(value ?? 0);
+  }
+
+  async countFailed(params: { maxAttempts: number }): Promise<number> {
+    const rows: unknown = await this.manager.query(
+      `
+        SELECT COUNT(*)::int AS count
+        FROM outbox
+        WHERE status = 'failed'
+          AND attempts < $1
+      `,
+      [params.maxAttempts],
+    );
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return 0;
+    }
+    const value = (rows[0] as { count?: unknown }).count;
+    return typeof value === 'number' ? value : Number(value ?? 0);
+  }
+
+  async deleteSentOlderThan(params: {
+    cutoff: Date;
+    limit: number;
+  }): Promise<number> {
+    const rows: unknown = await this.manager.query(
+      `
+        WITH candidates AS (
+          SELECT id
+          FROM outbox
+          WHERE status = 'sent'
+            AND updated_at < $1
+          ORDER BY updated_at ASC
+          LIMIT $2
+        )
+        DELETE FROM outbox o
+        USING candidates c
+        WHERE o.id = c.id
+        RETURNING o.id
+      `,
+      [params.cutoff, params.limit],
+    );
+    return Array.isArray(rows) ? rows.length : 0;
+  }
+
   async leaseNextBatch(params: {
     batchSize: number;
     lockedBy: string;

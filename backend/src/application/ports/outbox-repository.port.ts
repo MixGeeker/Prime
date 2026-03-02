@@ -12,6 +12,15 @@ export const OUTBOX_REPOSITORY = Symbol('OutboxRepositoryPort');
 export interface OutboxRepositoryPort {
   enqueue(event: NewOutboxEvent): Promise<OutboxRecord>;
 
+  /** 统计 pending 记录数（用于 metrics/backlog 观测）。 */
+  countPending(): Promise<number>;
+
+  /** 统计 failed 记录数（attempts < maxAttempts，用于 metrics/backlog 观测）。 */
+  countFailed(params: { maxAttempts: number }): Promise<number>;
+
+  /** 删除已发送（sent）的旧 outbox 记录。返回实际删除条数。 */
+  deleteSentOlderThan(params: { cutoff: Date; limit: number }): Promise<number>;
+
   /**
    * 抢占一批待发布 outbox 记录（带 lease + SKIP LOCKED），供 dispatcher（M7）使用。
    *

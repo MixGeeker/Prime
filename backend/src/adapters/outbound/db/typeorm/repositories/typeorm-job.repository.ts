@@ -174,4 +174,37 @@ export class TypeOrmJobRepository implements JobRepositoryPort {
       ],
     );
   }
+
+  async clearSnapshotsOlderThan(params: {
+    cutoff: Date;
+    limit: number;
+  }): Promise<number> {
+    const rows: unknown = await this.manager.query(
+      `
+        WITH candidates AS (
+          SELECT job_id
+          FROM jobs
+          WHERE (
+              (computed_at IS NOT NULL AND computed_at < $1)
+              OR (failed_at IS NOT NULL AND failed_at < $1)
+            )
+            AND (
+              inputs_snapshot_json IS NOT NULL
+              OR outputs_json IS NOT NULL
+            )
+          ORDER BY COALESCE(computed_at, failed_at) ASC
+          LIMIT $2
+        )
+        UPDATE jobs j
+        SET
+          inputs_snapshot_json = NULL,
+          outputs_json = NULL
+        FROM candidates c
+        WHERE j.job_id = c.job_id
+        RETURNING j.job_id
+      `,
+      [params.cutoff, params.limit],
+    );
+    return Array.isArray(rows) ? rows.length : 0;
+  }
 }

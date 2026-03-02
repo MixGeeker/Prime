@@ -10,6 +10,7 @@ import * as amqplib from 'amqplib';
 import type { ConsumeMessage } from 'amqplib';
 import type { ComputeJobRequestedV1 } from '../../../domain/job/job-request';
 import type { OutboxRecord } from '../../../domain/outbox/outbox';
+import { MetricsService } from '../../../observability/metrics/metrics.service';
 import { ExecuteJobUseCase } from '../../../application/use-cases/execute-job.use-case';
 import { FailInvalidJobMessageUseCase } from '../../../application/use-cases/fail-invalid-job-message.use-case';
 import {
@@ -36,6 +37,7 @@ export class MqWorkerService implements OnModuleInit, OnModuleDestroy {
   private dispatcherChannel: amqplib.ConfirmChannel | null = null;
   private dispatcherStop = false;
   private dispatcherPromise: Promise<void> | null = null;
+  private outboxMetricsInterval: NodeJS.Timeout | null = null;
 
   private readonly instanceId = `${hostname()}:${process.pid}`;
 
@@ -43,6 +45,7 @@ export class MqWorkerService implements OnModuleInit, OnModuleDestroy {
     private readonly configService: ConfigService,
     private readonly executeJobUseCase: ExecuteJobUseCase,
     private readonly failInvalidJobMessageUseCase: FailInvalidJobMessageUseCase,
+    private readonly metricsService: MetricsService,
     @Inject(OUTBOX_REPOSITORY)
     private readonly outboxRepository: OutboxRepositoryPort,
   ) {}
@@ -56,7 +59,9 @@ export class MqWorkerService implements OnModuleInit, OnModuleDestroy {
     const enableDispatcher = roles.has('dispatcher');
 
     if (!enableConsumer && !enableDispatcher) {
-      this.logger.log('Worker has no roles enabled; exiting.');
+      this.logger.log(
+        'Worker role consumer/dispatcher disabled; MQ worker not started.',
+      );
       return;
     }
 
@@ -114,10 +119,22 @@ export class MqWorkerService implements OnModuleInit, OnModuleDestroy {
     } else {
       this.logger.log('Worker role dispatcher disabled.');
     }
+
+    const metricsEnabled =
+      this.configService.get<boolean>('METRICS_ENABLED') ?? true;
+    if (metricsEnabled) {
+      const maxAttempts =
+        this.configService.get<number>('OUTBOX_DISPATCH_MAX_ATTEMPTS') ?? 25;
+      this.startOutboxMetricsPolling(maxAttempts);
+    }
   }
 
   async onModuleDestroy() {
     this.dispatcherStop = true;
+    if (this.outboxMetricsInterval) {
+      clearInterval(this.outboxMetricsInterval);
+      this.outboxMetricsInterval = null;
+    }
     try {
       await this.dispatcherPromise;
     } catch (error) {
@@ -157,6 +174,27 @@ export class MqWorkerService implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
+      const maxBytes =
+        this.configService.get<number>('MQ_MAX_MESSAGE_BYTES') ?? 1_000_000;
+      if (msg.content.length > maxBytes) {
+        this.logger.warn(
+          `Message too large, send to DLQ: size=${msg.content.length} max=${maxBytes}`,
+          JSON.stringify({
+            messageId:
+              typeof msg.properties.messageId === 'string'
+                ? msg.properties.messageId
+                : undefined,
+            correlationId:
+              typeof msg.properties.correlationId === 'string'
+                ? msg.properties.correlationId
+                : undefined,
+          }),
+        );
+        this.metricsService.incJobRequested('reject_dlq');
+        this.consumerChannel.reject(msg, false);
+        return;
+      }
+
       const messageId =
         typeof msg.properties.messageId === 'string'
           ? msg.properties.messageId
@@ -168,7 +206,11 @@ export class MqWorkerService implements OnModuleInit, OnModuleDestroy {
 
       const parsed = parseJson(msg.content);
       if (!parsed.ok) {
-        this.logger.warn(`Invalid JSON message, send to DLQ: ${parsed.reason}`);
+        this.logger.warn(
+          `Invalid JSON message, send to DLQ: ${parsed.reason}`,
+          JSON.stringify({ messageId, correlationId }),
+        );
+        this.metricsService.incJobRequested('reject_dlq');
         this.consumerChannel.reject(msg, false);
         return;
       }
@@ -176,14 +218,22 @@ export class MqWorkerService implements OnModuleInit, OnModuleDestroy {
       const root = parsed.value;
       const jobId = readNonEmptyString(root['jobId']);
       if (!jobId) {
-        this.logger.warn('Missing jobId, send to DLQ');
+        this.logger.warn(
+          'Missing jobId, send to DLQ',
+          JSON.stringify({ messageId, correlationId }),
+        );
+        this.metricsService.incJobRequested('reject_dlq');
         this.consumerChannel.reject(msg, false);
         return;
       }
 
       const definitionRef = parseDefinitionRef(root['definitionRef']);
       if (!definitionRef) {
-        this.logger.warn(`Invalid definitionRef, send to DLQ: jobId=${jobId}`);
+        this.logger.warn(
+          `Invalid definitionRef, send to DLQ: jobId=${jobId}`,
+          JSON.stringify({ messageId, correlationId, jobId }),
+        );
+        this.metricsService.incJobRequested('reject_dlq');
         this.consumerChannel.reject(msg, false);
         return;
       }
@@ -203,11 +253,31 @@ export class MqWorkerService implements OnModuleInit, OnModuleDestroy {
         if (failResult.kind === 'conflict') {
           this.logger.warn(
             `Idempotency conflict (invalid message), send to DLQ: jobId=${jobId}`,
+            JSON.stringify({
+              messageId,
+              correlationId,
+              jobId,
+              definitionId: definitionRef.definitionId,
+              versionUsed: definitionRef.version,
+            }),
           );
+          this.metricsService.incJobRequested('reject_dlq');
           this.consumerChannel.reject(msg, false);
           return;
         }
 
+        this.logger.debug(
+          'Message acked (invalid payload stored as job.failed)',
+          JSON.stringify({
+            messageId,
+            correlationId,
+            jobId,
+            definitionId: definitionRef.definitionId,
+            versionUsed: definitionRef.version,
+            result: failResult.kind,
+          }),
+        );
+        this.metricsService.incJobRequested('ack');
         this.consumerChannel.ack(msg);
         return;
       }
@@ -223,16 +293,47 @@ export class MqWorkerService implements OnModuleInit, OnModuleDestroy {
       if (execResult.kind === 'conflict') {
         this.logger.warn(
           `Idempotency conflict, send to DLQ: jobId=${payload.jobId}`,
+          JSON.stringify({
+            messageId,
+            correlationId,
+            jobId: payload.jobId,
+            definitionId: payload.definitionRef.definitionId,
+            versionUsed: payload.definitionRef.version,
+          }),
         );
+        this.metricsService.incJobRequested('reject_dlq');
         this.consumerChannel.reject(msg, false);
         return;
       }
 
+      this.logger.debug(
+        'Message acked',
+        JSON.stringify({
+          messageId,
+          correlationId,
+          jobId: payload.jobId,
+          definitionId: payload.definitionRef.definitionId,
+          versionUsed: payload.definitionRef.version,
+          result: execResult.kind,
+        }),
+      );
+      this.metricsService.incJobRequested('ack');
       this.consumerChannel.ack(msg);
     } catch (error) {
       this.logger.error(
         `Unhandled error while handling message, nack(requeue=true): ${String(error)}`,
+        JSON.stringify({
+          messageId:
+            typeof msg.properties.messageId === 'string'
+              ? msg.properties.messageId
+              : undefined,
+          correlationId:
+            typeof msg.properties.correlationId === 'string'
+              ? msg.properties.correlationId
+              : undefined,
+        }),
       );
+      this.metricsService.incJobRequested('nack_requeue');
       this.consumerChannel.nack(msg, false, true);
     }
   }
@@ -289,6 +390,7 @@ export class MqWorkerService implements OnModuleInit, OnModuleDestroy {
           maxAttempts: params.maxAttempts,
         });
 
+        this.metricsService.addOutboxLeased(batch.length);
         if (batch.length === 0) {
           await sleep(params.pollIntervalMs);
           continue;
@@ -321,6 +423,7 @@ export class MqWorkerService implements OnModuleInit, OnModuleDestroy {
     }
 
     const now = new Date();
+    const startedAt = process.hrtime.bigint();
     try {
       const content = Buffer.from(JSON.stringify(record.payload), 'utf8');
       const correlationId =
@@ -345,12 +448,21 @@ export class MqWorkerService implements OnModuleInit, OnModuleDestroy {
         publishOptions,
       );
 
+      const durationSeconds =
+        Number(process.hrtime.bigint() - startedAt) / 1_000_000_000;
+      this.metricsService.incOutboxPublish('sent');
+      this.metricsService.observeOutboxPublishDuration(durationSeconds);
       await this.outboxRepository.markSent({
         id: record.id,
         lockedBy: this.instanceId,
         now,
       });
     } catch (error) {
+      const durationSeconds =
+        Number(process.hrtime.bigint() - startedAt) / 1_000_000_000;
+      this.metricsService.incOutboxPublish('failed');
+      this.metricsService.observeOutboxPublishDuration(durationSeconds);
+
       const errorText = stringifyError(error);
       const nextAttempt = record.attempts + 1;
 
@@ -372,17 +484,42 @@ export class MqWorkerService implements OnModuleInit, OnModuleDestroy {
       });
     }
   }
+
+  private startOutboxMetricsPolling(maxAttempts: number) {
+    const intervalMs = 10_000;
+    const tick = async () => {
+      try {
+        const pending = await this.outboxRepository.countPending();
+        const failed = await this.outboxRepository.countFailed({
+          maxAttempts,
+        });
+        this.metricsService.setOutboxPending(pending);
+        this.metricsService.setOutboxFailed(failed);
+      } catch (error) {
+        this.logger.warn(`Outbox metrics polling failed: ${String(error)}`);
+      }
+    };
+
+    void tick();
+    this.outboxMetricsInterval = setInterval(() => void tick(), intervalMs);
+  }
 }
 
-function parseWorkerRoles(value: string): Set<'consumer' | 'dispatcher'> {
-  const roles = new Set<'consumer' | 'dispatcher'>();
+function parseWorkerRoles(
+  value: string,
+): Set<'consumer' | 'dispatcher' | 'maintenance'> {
+  const roles = new Set<'consumer' | 'dispatcher' | 'maintenance'>();
   const parts = value
     .split(',')
     .map((p) => p.trim())
     .filter(Boolean);
 
   for (const part of parts) {
-    if (part === 'consumer' || part === 'dispatcher') {
+    if (
+      part === 'consumer' ||
+      part === 'dispatcher' ||
+      part === 'maintenance'
+    ) {
       roles.add(part);
       continue;
     }

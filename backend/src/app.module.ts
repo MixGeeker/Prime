@@ -4,6 +4,7 @@ import { validateEnv } from './config/env.validation';
 import { HttpInboundModule } from './adapters/inbound/http/http.module';
 import { DbModule } from './adapters/outbound/db/db.module';
 import { ApplicationModule } from './application/application.module';
+import { MetricsModule } from './observability/metrics/metrics.module';
 
 /**
  * HTTP 应用的根模块。
@@ -21,6 +22,7 @@ import { ApplicationModule } from './application/application.module';
     }),
     DbModule,
     ApplicationModule,
+    MetricsModule,
     HttpInboundModule,
   ],
 })

@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import type { ComputeJobRequestedV1 } from '../../domain/job/job-request';
 import { computeJobRequestHash } from '../../domain/job/request-hash';
@@ -6,6 +6,7 @@ import { HashingService } from '../hashing/hashing.service';
 import { RUNNER_PORT, type RunnerPort } from '../ports/runner.port';
 import { UNIT_OF_WORK, type UnitOfWorkPort } from '../ports/unit-of-work.port';
 import { RunnerExecutionError } from '../runner/runner.error';
+import { MetricsService } from '../../observability/metrics/metrics.service';
 import { GraphValidatorService } from '../validation/graph-validator.service';
 import type { GraphJsonV1 } from '../validation/graph-json.types';
 import { UseCaseError } from './use-case.error';
@@ -39,18 +40,22 @@ export type ExecuteJobResult =
 type TransactionResult =
   | { kind: 'duplicate' }
   | { kind: 'conflict' }
-  | { kind: 'processed'; status: 'succeeded' | 'failed' };
+  | { kind: 'processed'; status: 'succeeded' | 'failed'; errorCode?: string };
 
 @Injectable()
 export class ExecuteJobUseCase {
+  private readonly logger = new Logger(ExecuteJobUseCase.name);
+
   constructor(
     @Inject(UNIT_OF_WORK) private readonly unitOfWork: UnitOfWorkPort,
     private readonly graphValidatorService: GraphValidatorService,
     private readonly hashingService: HashingService,
     @Inject(RUNNER_PORT) private readonly runnerPort: RunnerPort,
+    private readonly metricsService: MetricsService,
   ) {}
 
   async execute(command: ExecuteJobCommand): Promise<ExecuteJobResult> {
+    const startedAt = process.hrtime.bigint();
     const requestHash = computeJobRequestHash(command.payload);
     const outboxEventId = randomUUID();
 
@@ -242,18 +247,66 @@ export class ExecuteJobUseCase {
           return {
             kind: 'processed',
             status: 'failed',
+            errorCode: failure.code,
           } satisfies TransactionResult;
         }
       },
     );
 
+    const durationSeconds =
+      Number(process.hrtime.bigint() - startedAt) / 1_000_000_000;
+
     if (result.kind === 'duplicate' || result.kind === 'conflict') {
+      this.metricsService.incJobProcessed(result.kind);
+      this.logger.debug(
+        `Job ${result.kind}`,
+        JSON.stringify({
+          jobId: command.payload.jobId,
+          messageId: command.messageId,
+          correlationId: command.correlationId,
+          definitionRef: command.payload.definitionRef,
+          requestHash,
+        }),
+      );
       return {
         kind: result.kind,
         jobId: command.payload.jobId,
         requestHash,
         outboxEventId: null,
       };
+    }
+
+    this.metricsService.incJobProcessed(result.status);
+    this.metricsService.observeJobExecutionDuration(
+      result.status,
+      durationSeconds,
+    );
+    if (result.status === 'failed' && result.errorCode) {
+      this.metricsService.incJobFailed(result.errorCode);
+      this.logger.warn(
+        'Job failed',
+        JSON.stringify({
+          jobId: command.payload.jobId,
+          messageId: command.messageId,
+          correlationId: command.correlationId,
+          definitionRef: command.payload.definitionRef,
+          requestHash,
+          outboxEventId,
+          errorCode: result.errorCode,
+        }),
+      );
+    } else {
+      this.logger.debug(
+        'Job succeeded',
+        JSON.stringify({
+          jobId: command.payload.jobId,
+          messageId: command.messageId,
+          correlationId: command.correlationId,
+          definitionRef: command.payload.definitionRef,
+          requestHash,
+          outboxEventId,
+        }),
+      );
     }
 
     return {
