@@ -30,6 +30,7 @@ export class TypeOrmDraftRepository implements DefinitionDraftRepositoryPort {
       content: row.contentJson,
       outputSchema: row.outputSchemaJson ?? null,
       runnerConfig: row.runnerConfigJson ?? null,
+      createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
   }

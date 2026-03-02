@@ -1,16 +1,27 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Delete,
   Get,
-  NotImplementedException,
+  NotFoundException,
   Param,
   ParseIntPipe,
   Post,
   Put,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { CreateDraftUseCase } from '../../../../application/use-cases/create-draft.use-case';
+import { DeleteDraftUseCase } from '../../../../application/use-cases/delete-draft.use-case';
+import { DeprecateVersionUseCase } from '../../../../application/use-cases/deprecate-version.use-case';
+import { DryRunUseCase } from '../../../../application/use-cases/dry-run.use-case';
+import { GetDraftUseCase } from '../../../../application/use-cases/get-draft.use-case';
+import { GetVersionUseCase } from '../../../../application/use-cases/get-version.use-case';
+import { ListVersionsUseCase } from '../../../../application/use-cases/list-versions.use-case';
+import { PublishDefinitionUseCase } from '../../../../application/use-cases/publish-definition.use-case';
+import { UpdateDraftUseCase } from '../../../../application/use-cases/update-draft.use-case';
+import { UseCaseError } from '../../../../application/use-cases/use-case.error';
 import { ValidateDefinitionUseCase } from '../../../../application/use-cases/validate-definition.use-case';
 import {
   CreateDefinitionDraftDto,
@@ -21,92 +32,221 @@ import {
   ValidateDefinitionDto,
 } from './dto/definitions.dto';
 
-/**
- * Definitions Admin API（占位）。
- *
- * 参考：
- * - `compute-engine/API_DESIGN.md`（HTTP Admin API 契约）
- * - M4 里程碑会接入 application/use-cases 形成闭环。
- */
 @Controller('/admin/definitions')
 @ApiTags('admin')
 export class AdminDefinitionsController {
   constructor(
+    private readonly createDraftUseCase: CreateDraftUseCase,
+    private readonly getDraftUseCase: GetDraftUseCase,
+    private readonly updateDraftUseCase: UpdateDraftUseCase,
+    private readonly deleteDraftUseCase: DeleteDraftUseCase,
     private readonly validateDefinitionUseCase: ValidateDefinitionUseCase,
+    private readonly dryRunUseCase: DryRunUseCase,
+    private readonly publishDefinitionUseCase: PublishDefinitionUseCase,
+    private readonly deprecateVersionUseCase: DeprecateVersionUseCase,
+    private readonly listVersionsUseCase: ListVersionsUseCase,
+    private readonly getVersionUseCase: GetVersionUseCase,
   ) {}
 
   @Post()
-  createDraft(@Body() _body: CreateDefinitionDraftDto) {
-    throw new NotImplementedException('M0 scaffold: implemented in M4');
+  async createDraft(@Body() body: CreateDefinitionDraftDto) {
+    try {
+      return await this.createDraftUseCase.execute({
+        definitionId: body.definitionId,
+        contentType: body.contentType,
+        content: body.content,
+        outputSchema: body.outputSchema ?? null,
+        runnerConfig: body.runnerConfig ?? null,
+      });
+    } catch (error) {
+      throw mapUseCaseError(error);
+    }
   }
 
   @Get(':definitionId/draft')
-  getDraft(@Param('definitionId') _definitionId: string) {
-    throw new NotImplementedException('M0 scaffold: implemented in M4');
+  async getDraft(@Param('definitionId') definitionId: string) {
+    try {
+      return await this.getDraftUseCase.execute(definitionId);
+    } catch (error) {
+      throw mapUseCaseError(error);
+    }
   }
 
   @Put(':definitionId/draft')
-  updateDraft(
-    @Param('definitionId') _definitionId: string,
-    @Body() _body: UpdateDefinitionDraftDto,
+  async updateDraft(
+    @Param('definitionId') definitionId: string,
+    @Body() body: UpdateDefinitionDraftDto,
   ) {
-    throw new NotImplementedException('M0 scaffold: implemented in M4');
+    try {
+      return await this.updateDraftUseCase.execute({
+        definitionId,
+        draftRevisionId: body.draftRevisionId,
+        contentType: body.contentType,
+        content: body.content,
+        outputSchema: body.outputSchema ?? null,
+        runnerConfig: body.runnerConfig ?? null,
+      });
+    } catch (error) {
+      throw mapUseCaseError(error);
+    }
   }
 
   @Delete(':definitionId/draft')
-  deleteDraft(@Param('definitionId') _definitionId: string) {
-    throw new NotImplementedException('M0 scaffold: implemented in M4');
+  async deleteDraft(@Param('definitionId') definitionId: string) {
+    try {
+      await this.deleteDraftUseCase.execute(definitionId);
+      return {
+        deleted: true,
+      };
+    } catch (error) {
+      throw mapUseCaseError(error);
+    }
   }
 
   @Post('validate')
-  validate(@Body() body: ValidateDefinitionDto) {
-    // M2 先支持“一次性 definition 校验”（编辑器实时提示/本地校验）。
-    // M4 再支持 definitionRef（读 DB 的已发布版本或 draft）。
-    if (!body.definition) {
+  async validate(@Body() body: ValidateDefinitionDto) {
+    const hasRef = Boolean(body.definitionRef);
+    const hasDefinition = Boolean(body.definition);
+    if ((hasRef && hasDefinition) || (!hasRef && !hasDefinition)) {
       throw new BadRequestException(
-        'M2 only supports validating inline `definition` (definitionRef supported in M4)',
+        'either definitionRef or definition must be provided',
       );
     }
+
     return this.validateDefinitionUseCase.execute({
-      contentType: body.definition.contentType,
-      content: body.definition.content,
-      outputSchema: body.definition.outputSchema ?? null,
-      runnerConfig: body.definition.runnerConfig ?? null,
+      definitionRef: body.definitionRef,
+      definition: body.definition
+        ? {
+            contentType: body.definition.contentType,
+            content: body.definition.content,
+            outputSchema: body.definition.outputSchema ?? null,
+            runnerConfig: body.definition.runnerConfig ?? null,
+          }
+        : undefined,
     });
   }
 
   @Post('dry-run')
-  dryRun(@Body() _body: DryRunDto) {
-    throw new NotImplementedException('M0 scaffold: implemented in M4');
+  async dryRun(@Body() body: DryRunDto) {
+    const hasRef = Boolean(body.definitionRef);
+    const hasDefinition = Boolean(body.definition);
+    if ((hasRef && hasDefinition) || (!hasRef && !hasDefinition)) {
+      throw new BadRequestException(
+        'either definitionRef or definition must be provided',
+      );
+    }
+
+    try {
+      return await this.dryRunUseCase.execute({
+        definitionRef: body.definitionRef,
+        definition: body.definition
+          ? {
+              contentType: body.definition.contentType,
+              content: body.definition.content,
+              outputSchema: body.definition.outputSchema ?? null,
+              runnerConfig: body.definition.runnerConfig ?? null,
+            }
+          : undefined,
+        inputs: body.inputs,
+        options: body.options ?? {},
+      });
+    } catch (error) {
+      throw mapUseCaseError(error);
+    }
   }
 
   @Post(':definitionId/publish')
-  publish(
-    @Param('definitionId') _definitionId: string,
-    @Body() _body: PublishDefinitionDto,
+  async publish(
+    @Param('definitionId') definitionId: string,
+    @Body() body: PublishDefinitionDto,
   ) {
-    throw new NotImplementedException('M0 scaffold: implemented in M4');
+    try {
+      return await this.publishDefinitionUseCase.execute({
+        definitionId,
+        draftRevisionId: body.draftRevisionId,
+        changelog: body.changelog,
+      });
+    } catch (error) {
+      throw mapUseCaseError(error);
+    }
   }
 
   @Post(':definitionId/versions/:version/deprecate')
-  deprecate(
-    @Param('definitionId') _definitionId: string,
-    @Param('version', ParseIntPipe) _version: number,
-    @Body() _body: DeprecateVersionDto,
+  async deprecate(
+    @Param('definitionId') definitionId: string,
+    @Param('version', ParseIntPipe) version: number,
+    @Body() body: DeprecateVersionDto,
   ) {
-    throw new NotImplementedException('M0 scaffold: implemented in M4');
+    try {
+      return await this.deprecateVersionUseCase.execute({
+        definitionId,
+        version,
+        reason: body.reason,
+      });
+    } catch (error) {
+      throw mapUseCaseError(error);
+    }
   }
 
   @Get(':definitionId/versions')
-  listVersions(@Param('definitionId') _definitionId: string) {
-    throw new NotImplementedException('M0 scaffold: implemented in M4');
+  async listVersions(@Param('definitionId') definitionId: string) {
+    return this.listVersionsUseCase.execute(definitionId);
   }
 
   @Get(':definitionId/versions/:version')
-  getVersion(
-    @Param('definitionId') _definitionId: string,
-    @Param('version', ParseIntPipe) _version: number,
+  async getVersion(
+    @Param('definitionId') definitionId: string,
+    @Param('version', ParseIntPipe) version: number,
   ) {
-    throw new NotImplementedException('M0 scaffold: implemented in M4');
+    try {
+      return await this.getVersionUseCase.execute(definitionId, version);
+    } catch (error) {
+      throw mapUseCaseError(error);
+    }
+  }
+}
+
+function mapUseCaseError(error: unknown) {
+  if (!(error instanceof UseCaseError)) {
+    return error;
+  }
+
+  switch (error.code) {
+    case 'DEFINITION_DRAFT_NOT_FOUND':
+    case 'DEFINITION_NOT_FOUND':
+      return new NotFoundException({
+        code: error.code,
+        message: error.message,
+      });
+    case 'DRAFT_REVISION_CONFLICT':
+      return new ConflictException({
+        code: error.code,
+        message: error.message,
+      });
+    case 'DEFINITION_INVALID':
+    case 'INPUT_VALIDATION_ERROR':
+    case 'INVALID_MESSAGE':
+    case 'RUNNER_DETERMINISTIC_ERROR':
+      return new BadRequestException({
+        code: error.code,
+        message: error.message,
+        details: error.details,
+      });
+    case 'RUNNER_TIMEOUT':
+      return new BadRequestException({
+        code: error.code,
+        message: error.message,
+      });
+    case 'DEFINITION_NOT_PUBLISHED':
+      return new ConflictException({
+        code: error.code,
+        message: error.message,
+      });
+    default:
+      return new BadRequestException({
+        code: error.code,
+        message: error.message,
+        details: error.details,
+      });
   }
 }

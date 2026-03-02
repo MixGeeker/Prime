@@ -26,17 +26,30 @@
 
 > 建议用 2 周为一个迭代单位；下面按“可独立验收”的里程碑拆分。你们也可以按团队节奏合并/拆分。
 
+### 当前进度快照（截至 2026-03-02）
+
+- M0：已完成（5/5）
+- M1：部分完成（3/4，`ExecuteJob` 事务内 `job + outbox` 与 MQ ack 时机尚未闭环）
+- M2：已完成（3/3）
+- M3：未开始（0/6）
+- M4：部分完成（`validate` 仅支持 inline `definition`；其余接口为占位）
+- M5：未开始
+- M6：未开始
+- M7：未开始
+- M8：未开始
+- M9：未开始（仅有部分 retention env 配置）
+
 ### M0. 项目骨架与工程规范（可启动）
 
 **目标**
 - 服务能跑起来，有基础配置与目录结构，便于后续按 DDD+六边形扩展。
 
 **任务**
-- [ ] 初始化 NestJS 服务骨架（HTTP + MQ worker 预留）
-- [ ] 按 `BACKEND_GUIDE.md` 建议落目录：`domain/application/ports/adapters`
-- [ ] 配置：env 管理（DB/MQ/日志级别/retention TTL）
-- [ ] 基础端点：`GET /health`、（可选）`GET /ready`
-- [ ] OpenAPI/Swagger（至少覆盖 Admin API）
+- [x] 初始化 NestJS 服务骨架（HTTP + MQ worker 预留）
+- [x] 按 `BACKEND_GUIDE.md` 建议落目录：`domain/application/ports/adapters`
+- [x] 配置：env 管理（DB/MQ/日志级别/retention TTL）
+- [x] 基础端点：`GET /health`、（可选）`GET /ready`
+- [x] OpenAPI/Swagger（至少覆盖 Admin API）
 
 **验收标准（DoD）**
 - 可本地启动，能连接空 DB（或跳过 DB）并通过健康检查
@@ -52,10 +65,10 @@
 - 把“版本化 Definition + jobId 幂等 + outbox 可靠发布”落到 DB。
 
 **任务**
-- [ ] 建表/迁移（最少：`definitions/definition_drafts/definition_versions/jobs/outbox`；`inbox` 可选）
-- [ ] 定义 `jobs.request_hash` 规则（用于检测同 `jobId` 不同 payload）
-- [ ] Repository adapters（TypeORM）：DraftRepo / VersionRepo / JobRepo / OutboxRepo
-- [ ] 事务边界：`ExecuteJob` 用例里保证 `job + outbox` 同事务提交后才能 ack
+- [x] 建表/迁移（最少：`definitions/definition_drafts/definition_versions/jobs/outbox`；`inbox` 可选）
+- [x] 定义 `jobs.request_hash` 规则（用于检测同 `jobId` 不同 payload）
+- [x] Repository adapters（TypeORM）：DraftRepo / VersionRepo / JobRepo / OutboxRepo
+- [ ] 事务边界：`ExecuteJob` 用例里保证 `job + outbox` 同事务提交后才能 ack（目前仅落 `jobs` 幂等存根）
 
 **验收标准（DoD）**
 - `publish` 产出不可变 `definition_versions`（append-only）
@@ -73,9 +86,9 @@
 - 能对 graphJson 做结构/拓扑/类型的最小静态校验；并具备 Node Catalog（节点白名单）。
 
 **任务**
-- [ ] 实现 Graph schema 校验（结构字段、唯一性、DAG、端口合法性、类型兼容）
-- [ ] Node Catalog（只读 JSON/内置模块 + `GET /catalog/nodes`）
-- [ ] validate 错误结构化输出：`{ code, severity, path?, message }`
+- [x] 实现 Graph schema 校验（结构字段、唯一性、DAG、端口合法性、类型兼容）
+- [x] Node Catalog（只读 JSON/内置模块 + `GET /catalog/nodes`）
+- [x] validate 错误结构化输出：`{ code, severity, path?, message }`
 
 **验收标准（DoD）**
 - Editor 按 `validate` 返回能定位到 node/edge/variable 的错误
@@ -122,7 +135,7 @@
 
 **任务**
 - [ ] Draft CRUD：`POST/GET/PUT/DELETE /admin/definitions/:id/draft`
-- [ ] `POST /admin/definitions/validate`
+- [ ] `POST /admin/definitions/validate`（已支持 inline `definition` 校验，`definitionRef` 待实现）
 - [ ] `POST /admin/definitions/dry-run`（不落库、不发 MQ）
 - [ ] `POST /admin/definitions/:id/publish`（生成 vN + 计算 definitionHash）
 - [ ] `POST /admin/definitions/:id/versions/:version/deprecate`
@@ -232,7 +245,7 @@
 - DB 体积可控，同时不破坏 jobId 幂等与追溯。
 
 **任务**
-- [ ] 明确保留策略配置项（OutboxSentTTL / JobSnapshotTTL / DraftTTL / JobMetadataTTL）
+- [ ] 明确保留策略配置项（OutboxSentTTL / JobSnapshotTTL / DraftTTL / JobMetadataTTL）（目前已存在 `OUTBOX_SENT_TTL_DAYS` 与 `JOBS_SNAPSHOT_TTL_DAYS`）
 - [ ] Retention Cleaner（定时任务）：
   - 清理 SENT outbox
   - 清理过期 drafts

@@ -1,21 +1,38 @@
 import {
+  BadRequestException,
   Controller,
   Get,
-  NotImplementedException,
+  NotFoundException,
   Param,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { GetJobUseCase } from '../../../../application/use-cases/get-job.use-case';
+import { UseCaseError } from '../../../../application/use-cases/use-case.error';
 
-/**
- * Jobs Admin API（占位）。
- *
- * M4 会实现 `GET /admin/jobs/:jobId`，用于运维对账/排障查询。
- */
 @Controller('/admin/jobs')
 @ApiTags('admin')
 export class AdminJobsController {
+  constructor(private readonly getJobUseCase: GetJobUseCase) {}
+
   @Get(':jobId')
-  getJob(@Param('jobId') _jobId: string) {
-    throw new NotImplementedException('M0 scaffold: implemented in M4');
+  async getJob(@Param('jobId') jobId: string) {
+    try {
+      return await this.getJobUseCase.execute(jobId);
+    } catch (error) {
+      if (error instanceof UseCaseError) {
+        if (error.code === 'JOB_NOT_FOUND') {
+          throw new NotFoundException({
+            code: error.code,
+            message: error.message,
+          });
+        }
+        throw new BadRequestException({
+          code: error.code,
+          message: error.message,
+          details: error.details,
+        });
+      }
+      throw error;
+    }
   }
 }

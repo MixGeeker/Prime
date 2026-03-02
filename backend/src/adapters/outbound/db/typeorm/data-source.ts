@@ -16,6 +16,7 @@ import { DefinitionEntity } from './entities/definition.entity';
 import { DefinitionVersionEntity } from './entities/definition-version.entity';
 import { JobEntity } from './entities/job.entity';
 import { OutboxEntity } from './entities/outbox.entity';
+import { CloseoutM1M4AuditFields1772400000000 } from './migrations/1772400000000-CloseoutM1M4AuditFields';
 import { InitComputeEngineM11772323541439 } from './migrations/1772323541439-InitComputeEngineM1';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -34,7 +35,10 @@ export const ComputeEngineDataSource = new DataSource({
     OutboxEntity,
   ],
   // 显式注册 migrations，避免运行时扫描导致顺序不一致。
-  migrations: [InitComputeEngineM11772323541439],
+  migrations: [
+    InitComputeEngineM11772323541439,
+    CloseoutM1M4AuditFields1772400000000,
+  ],
   synchronize: false,
   migrationsRun: false,
 });

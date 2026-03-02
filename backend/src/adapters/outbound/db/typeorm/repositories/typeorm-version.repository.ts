@@ -39,6 +39,8 @@ export class TypeOrmVersionRepository implements DefinitionVersionRepositoryPort
       changelog: row.changelog ?? null,
       publishedAt: row.publishedAt,
       publishedBy: row.publishedBy ?? null,
+      deprecatedAt: row.deprecatedAt ?? null,
+      deprecatedReason: row.deprecatedReason ?? null,
     };
   }
 
@@ -60,6 +62,8 @@ export class TypeOrmVersionRepository implements DefinitionVersionRepositoryPort
       changelog: row.changelog ?? null,
       publishedAt: row.publishedAt,
       publishedBy: row.publishedBy ?? null,
+      deprecatedAt: row.deprecatedAt ?? null,
+      deprecatedReason: row.deprecatedReason ?? null,
     }));
   }
 
@@ -100,5 +104,32 @@ export class TypeOrmVersionRepository implements DefinitionVersionRepositoryPort
         params.publishedBy,
       ],
     );
+  }
+
+  async deprecateVersion(params: {
+    definitionId: string;
+    version: number;
+    reason: string | null;
+    deprecatedAt: Date;
+  }): Promise<DefinitionVersion | null> {
+    const updateResult: unknown = await this.manager.query(
+      `
+        UPDATE definition_versions
+        SET
+          status = 'deprecated',
+          deprecated_at = $3,
+          deprecated_reason = $4
+        WHERE definition_id = $1
+          AND version = $2
+        RETURNING definition_id, version
+      `,
+      [params.definitionId, params.version, params.deprecatedAt, params.reason],
+    );
+
+    if (!Array.isArray(updateResult) || updateResult.length === 0) {
+      return null;
+    }
+
+    return this.getVersion(params.definitionId, params.version);
   }
 }

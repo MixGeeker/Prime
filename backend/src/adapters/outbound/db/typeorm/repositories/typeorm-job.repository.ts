@@ -31,6 +31,7 @@ function mapJob(row: JobEntity): JobRecord {
     status: row.status as JobRecord['status'],
     requestedAt: row.requestedAt,
     computedAt: row.computedAt ?? null,
+    failedAt: row.failedAt ?? null,
     inputsSnapshot: row.inputsSnapshotJson ?? null,
     outputs: row.outputsJson ?? null,
     errorCode: row.errorCode ?? null,

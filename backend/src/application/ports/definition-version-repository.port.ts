@@ -34,4 +34,10 @@ export interface DefinitionVersionRepositoryPort {
   ): Promise<DefinitionVersion | null>;
   listVersions(definitionId: string): Promise<DefinitionVersion[]>;
   insertVersion(params: InsertDefinitionVersionParams): Promise<void>;
+  deprecateVersion(params: {
+    definitionId: string;
+    version: number;
+    reason: string | null;
+    deprecatedAt: Date;
+  }): Promise<DefinitionVersion | null>;
 }

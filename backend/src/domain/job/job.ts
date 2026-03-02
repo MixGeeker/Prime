@@ -21,6 +21,7 @@ export interface JobRecord {
   status: JobStatus;
   requestedAt: Date;
   computedAt: Date | null;
+  failedAt: Date | null;
   inputsSnapshot: Record<string, unknown> | null;
   outputs: Record<string, unknown> | null;
   errorCode: string | null;

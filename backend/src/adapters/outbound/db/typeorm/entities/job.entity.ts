@@ -46,6 +46,9 @@ export class JobEntity {
   @Column({ name: 'computed_at', type: 'timestamptz', nullable: true })
   computedAt!: Date | null;
 
+  @Column({ name: 'failed_at', type: 'timestamptz', nullable: true })
+  failedAt!: Date | null;
+
   @Column({ name: 'inputs_snapshot_json', type: 'jsonb', nullable: true })
   inputsSnapshotJson!: Record<string, unknown> | null;
 
