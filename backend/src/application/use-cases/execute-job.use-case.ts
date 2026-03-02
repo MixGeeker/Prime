@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import type { ComputeJobRequestedV1 } from '../../domain/job/job-request';
 import { computeJobRequestHash } from '../../domain/job/request-hash';
 import { UNIT_OF_WORK, type UnitOfWorkPort } from '../ports/unit-of-work.port';
@@ -24,6 +25,7 @@ export type ExecuteJobResult = {
   kind: 'inserted' | 'duplicate' | 'conflict';
   jobId: string;
   requestHash: string;
+  outboxEventId: string | null;
 };
 
 @Injectable()
@@ -33,20 +35,51 @@ export class ExecuteJobUseCase {
   ) {}
 
   async execute(command: ExecuteJobCommand): Promise<ExecuteJobResult> {
-    // requestHash 只基于业务 payload（不含 messageId/correlationId），用于去重与冲突检测。
     const requestHash = computeJobRequestHash(command.payload);
+    const outboxEventId = randomUUID();
 
-    const { kind } = await this.unitOfWork.runInTransaction(({ jobRepo }) =>
-      jobRepo.tryInsertRequested({
-        jobId: command.payload.jobId,
-        requestHash,
-        messageId: command.messageId ?? null,
-        correlationId: command.correlationId ?? null,
-        definitionId: command.payload.definitionRef.definitionId,
-        versionUsed: command.payload.definitionRef.version,
-      }),
+    const result = await this.unitOfWork.runInTransaction(
+      async ({ jobRepo, outboxRepo }) => {
+        const insertResult = await jobRepo.tryInsertRequested({
+          jobId: command.payload.jobId,
+          requestHash,
+          messageId: command.messageId ?? null,
+          correlationId: command.correlationId ?? null,
+          definitionId: command.payload.definitionRef.definitionId,
+          versionUsed: command.payload.definitionRef.version,
+        });
+
+        if (insertResult.kind === 'inserted') {
+          await outboxRepo.enqueue({
+            id: outboxEventId,
+            eventType: 'compute.job.requested.accepted.v1',
+            routingKey: 'compute.job.requested.accepted.v1',
+            payload: {
+              schemaVersion: 1,
+              jobId: insertResult.job.jobId,
+              definitionRef: {
+                definitionId: insertResult.job.definitionId,
+                version: insertResult.job.versionUsed,
+              },
+              requestHash: insertResult.job.requestHash,
+              requestedAt: insertResult.job.requestedAt.toISOString(),
+            },
+            headers: {
+              messageId: command.messageId ?? null,
+              correlationId: command.correlationId ?? null,
+            },
+          });
+        }
+
+        return insertResult;
+      },
     );
 
-    return { kind, jobId: command.payload.jobId, requestHash };
+    return {
+      kind: result.kind,
+      jobId: command.payload.jobId,
+      requestHash,
+      outboxEventId: result.kind === 'inserted' ? outboxEventId : null,
+    };
   }
 }

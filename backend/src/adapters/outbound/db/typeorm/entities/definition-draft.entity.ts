@@ -1,5 +1,6 @@
 import {
   Column,
+  CreateDateColumn,
   Entity,
   JoinColumn,
   ManyToOne,
@@ -38,6 +39,9 @@ export class DefinitionDraftEntity {
 
   @Column({ name: 'runner_config_json', type: 'jsonb', nullable: true })
   runnerConfigJson!: Record<string, unknown> | null;
+
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  createdAt!: Date;
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt!: Date;

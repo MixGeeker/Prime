@@ -43,4 +43,10 @@ export class DefinitionVersionEntity {
 
   @Column({ name: 'published_by', type: 'text', nullable: true })
   publishedBy!: string | null;
+
+  @Column({ name: 'deprecated_at', type: 'timestamptz', nullable: true })
+  deprecatedAt!: Date | null;
+
+  @Column({ name: 'deprecated_reason', type: 'text', nullable: true })
+  deprecatedReason!: string | null;
 }

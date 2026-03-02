@@ -20,6 +20,7 @@ export interface DefinitionDraft {
   content: Record<string, unknown>;
   outputSchema: Record<string, unknown> | null;
   runnerConfig: Record<string, unknown> | null;
+  createdAt: Date;
   updatedAt: Date;
 }
 
@@ -43,4 +44,6 @@ export interface DefinitionVersion {
   changelog: string | null;
   publishedAt: Date;
   publishedBy: string | null;
+  deprecatedAt: Date | null;
+  deprecatedReason: string | null;
 }
