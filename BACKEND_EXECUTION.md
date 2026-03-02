@@ -29,11 +29,11 @@
 ### 当前进度快照（截至 2026-03-02）
 
 - M0：已完成（5/5）
-- M1：部分完成（3/4，`ExecuteJob` 事务内 `job + outbox` 与 MQ ack 时机尚未闭环）
+- M1：已完成（4/4）
 - M2：已完成（3/3）
-- M3：未开始（0/6）
-- M4：部分完成（`validate` 仅支持 inline `definition`；其余接口为占位）
-- M5：未开始
+- M3：部分完成（4/6，JCS 与 golden cases 待补）
+- M4：已完成（7/7）
+- M5：部分完成（2/4，节点集合与失败映射待补）
 - M6：未开始
 - M7：未开始
 - M8：未开始
@@ -68,7 +68,7 @@
 - [x] 建表/迁移（最少：`definitions/definition_drafts/definition_versions/jobs/outbox`；`inbox` 可选）
 - [x] 定义 `jobs.request_hash` 规则（用于检测同 `jobId` 不同 payload）
 - [x] Repository adapters（TypeORM）：DraftRepo / VersionRepo / JobRepo / OutboxRepo
-- [ ] 事务边界：`ExecuteJob` 用例里保证 `job + outbox` 同事务提交后才能 ack（目前仅落 `jobs` 幂等存根）
+- [x] 事务边界：`ExecuteJob` 用例里保证 `job + outbox` 同事务提交（MQ ack 时机在 M6 接入 consumer 时实现）
 
 **验收标准（DoD）**
 - `publish` 产出不可变 `definition_versions`（append-only）
@@ -107,11 +107,11 @@
 - 实现 `definitionHash/inputsHash/outputsHash`，并有可复用的测试向量（golden cases）。
 
 **任务**
-- [ ] typed canonicalize（Decimal/Ratio/DateTime）
-- [ ] JCS（RFC 8785）序列化
-- [ ] `definitionHash`：发布时计算；裁剪 `content.metadata/resolvers`；稳定排序（variables/nodes/edges/outputs）
-- [ ] `inputsHash`：按 variables.path 全量覆盖；缺失时应用 default；并纳入 `job.options`
-- [ ] `outputsHash`：只在成功时计算；失败不产生 outputsHash
+- [x] typed canonicalize（Decimal/Ratio/DateTime）
+- [ ] JCS（RFC 8785）序列化（目前为“稳定 stringify”占位，后续需替换为真正 JCS 实现）
+- [x] `definitionHash`：发布时计算；裁剪 `content.metadata/resolvers`；稳定排序（variables/nodes/edges/outputs）
+- [x] `inputsHash`：按 variables.path 全量覆盖；缺失时应用 default；并纳入 `job.options`
+- [x] `outputsHash`：只在成功时计算；失败不产生 outputsHash
 - [ ] golden cases：至少覆盖
   - 同语义不同顺序 → hash 相同（definitionHash）
   - default 生效/不生效 → inputsHash 不同
@@ -134,13 +134,13 @@
 - 给 Editor/运维提供完整的后端能力：draft 流程 + 校验 + 预览 + 发布 + job 查询。
 
 **任务**
-- [ ] Draft CRUD：`POST/GET/PUT/DELETE /admin/definitions/:id/draft`
-- [ ] `POST /admin/definitions/validate`（已支持 inline `definition` 校验，`definitionRef` 待实现）
-- [ ] `POST /admin/definitions/dry-run`（不落库、不发 MQ）
-- [ ] `POST /admin/definitions/:id/publish`（生成 vN + 计算 definitionHash）
-- [ ] `POST /admin/definitions/:id/versions/:version/deprecate`
-- [ ] Read：`GET /admin/definitions/:id/versions`、`GET /admin/definitions/:id/versions/:version`
-- [ ] 运维查询：`GET /admin/jobs/:jobId`
+- [x] Draft CRUD：`POST /admin/definitions`、`GET/PUT/DELETE /admin/definitions/:id/draft`
+- [x] `POST /admin/definitions/validate`（支持 `definitionRef` 与 inline `definition`）
+- [x] `POST /admin/definitions/dry-run`（不落库、不发 MQ）
+- [x] `POST /admin/definitions/:id/publish`（生成 vN + 计算 definitionHash）
+- [x] `POST /admin/definitions/:id/versions/:version/deprecate`
+- [x] Read：`GET /admin/definitions/:id/versions`、`GET /admin/definitions/:id/versions/:version`
+- [x] 运维查询：`GET /admin/jobs/:jobId`
 
 **验收标准（DoD）**
 - draft → validate → dry-run → publish 流程闭环
@@ -158,12 +158,13 @@
 - 能执行已发布 DefinitionVersion（graphJson），产出 outputs，并严格遵守纯函数约束。
 
 **任务**
-- [ ] RunnerPort（domain/application 只依赖 port）
+- [x] RunnerPort（domain/application 只依赖 port）
 - [ ] 节点执行（按 Node Catalog 白名单），包含最小节点集合：
-  - `core.var.*@1`、`core.const.*@1`（按 valueType 拆分）
-  - 数值/逻辑/比较/if/round
-- [ ] 执行限制：`runnerConfig.limits`（maxNodes/maxDepth/timeout）
-- [ ] 失败分类：确定性错误 vs 超时/资源错误（映射到 `job.failed.error.code` 与 `retryable`）
+  - [x] `core.var.*@1`、`core.const.*@1`（按 valueType 拆分）
+  - [x] 数值：`math.add/sub/mul/div@1`
+  - [ ] 逻辑/比较/if/round（待补齐）
+- [x] 执行限制：`runnerConfig.limits`（maxNodes/maxDepth/timeout）
+- [ ] 失败分类：确定性错误 vs 超时/资源错误（映射到 `job.failed.error.code` 与 `retryable`）（M6 接入 MQ 后补齐）
 
 **验收标准（DoD）**
 - 同输入同输出（可用回归用例验证）
