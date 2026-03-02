@@ -4,7 +4,6 @@ import { toDecimal } from '../../shared/decimal-runtime';
 export const COMPARE_DECIMAL_LT_V1: NodeImplementation = {
   def: {
     nodeType: 'compare.decimal.lt',
-    nodeVersion: 1,
     title: '小于（Decimal）',
     category: 'compare',
     inputs: [

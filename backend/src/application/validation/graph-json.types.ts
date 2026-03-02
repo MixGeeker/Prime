@@ -11,8 +11,8 @@ export type RoundingMode =
   | 'HALF_CEIL'
   | 'HALF_FLOOR';
 
-export interface GraphVariable {
-  path: string;
+export interface GraphInputDef {
+  name: string;
   valueType: ValueType;
   required?: boolean;
   description?: string;
@@ -20,10 +20,16 @@ export interface GraphVariable {
   constraints?: Record<string, unknown>;
 }
 
+export interface GraphLocalDef {
+  name: string;
+  valueType: ValueType;
+  default?: unknown;
+  description?: string;
+}
+
 export interface GraphNode {
   id: string;
   nodeType: string;
-  nodeVersion: number;
   params?: Record<string, unknown>;
 }
 
@@ -37,6 +43,12 @@ export interface GraphEdge {
   to: GraphEndpoint;
 }
 
+export interface GraphEntrypoint {
+  key: string;
+  params: GraphInputDef[];
+  to: GraphEndpoint; // exec input
+}
+
 export interface GraphOutput {
   key: string;
   valueType: ValueType;
@@ -47,12 +59,20 @@ export interface GraphOutput {
   };
 }
 
+/**
+ * BlueprintGraph（控制流蓝图）：
+ * - value edges 必须是 DAG（无环）
+ * - execEdges 允许环（loop），由 runner limits 限制步数/耗时
+ */
 export interface GraphJsonV1 {
-  schemaVersion: 1;
-  variables: GraphVariable[];
+  globals: GraphInputDef[];
+  entrypoints: GraphEntrypoint[];
+  locals: GraphLocalDef[];
   nodes: GraphNode[];
   edges: GraphEdge[];
+  execEdges: GraphEdge[];
   outputs: GraphOutput[];
   metadata?: unknown;
   resolvers?: unknown;
 }
+

@@ -5,7 +5,6 @@ import { toDecimal } from '../shared/decimal-runtime';
 export const MATH_SUB_V1: NodeImplementation = {
   def: {
     nodeType: 'math.sub',
-    nodeVersion: 1,
     title: '减法',
     category: 'math',
     description: 'Decimal 减法：a - b',

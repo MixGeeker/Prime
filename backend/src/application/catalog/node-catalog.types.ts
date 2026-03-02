@@ -23,10 +23,13 @@ export interface NodePortDef {
 
 export interface NodeDef {
   nodeType: string;
-  nodeVersion: number;
   title: string;
   category: string;
   description?: string;
+  /** exec 输入端口（控制流） */
+  execInputs?: Array<{ name: string }>;
+  /** exec 输出端口（控制流） */
+  execOutputs?: Array<{ name: string }>;
   inputs: NodePortDef[];
   outputs: NodePortDef[];
   /**

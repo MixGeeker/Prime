@@ -9,7 +9,11 @@ import { jcsCanonicalize } from './jcs';
 import type {
   GraphJsonV1,
   GraphOutput,
-  GraphVariable,
+  GraphEdge,
+  GraphEntrypoint,
+  GraphInputDef,
+  GraphLocalDef,
+  GraphNode,
 } from '../validation/graph-json.types';
 
 export interface DefinitionHashParams {
@@ -20,20 +24,15 @@ export interface DefinitionHashParams {
 }
 
 export interface InputsSnapshotResult {
-  ok: boolean;
-  message?: string;
+  ok: false;
+  message: string;
   path?: string;
-  variables?: Record<string, unknown>;
-  options?: Record<string, unknown>;
-  inputsHash?: string;
 }
 
 export interface OutputsHashResult {
-  ok: boolean;
-  message?: string;
+  ok: false;
+  message: string;
   path?: string;
-  outputs?: Record<string, unknown>;
-  outputsHash?: string;
 }
 
 @Injectable()
@@ -56,55 +55,81 @@ export class HashingService {
   }
 
   buildInputsSnapshot(
-    variables: GraphVariable[],
-    inputs: Record<string, unknown>,
+    graph: GraphJsonV1,
+    rawInputs: unknown,
+    entrypointKey: unknown,
     options: unknown,
-  ): InputsSnapshotResult {
-    const sortedVariables = [...variables].sort((a, b) =>
-      a.path.localeCompare(b.path),
+  ):
+    | {
+        ok: true;
+        entrypointKeyUsed: string;
+        globals: Record<string, unknown>;
+        params: Record<string, unknown>;
+        options: Record<string, unknown>;
+        inputsHash: string;
+      }
+    | InputsSnapshotResult {
+    const effectiveEntrypointKey =
+      typeof entrypointKey === 'string' && entrypointKey.length > 0
+        ? entrypointKey
+        : 'main';
+
+    const entrypoint = graph.entrypoints.find(
+      (ep) => ep.key === effectiveEntrypointKey,
     );
-    const canonicalizedVariables: Record<string, unknown> = {};
+    if (!entrypoint) {
+      return {
+        ok: false,
+        message: `entrypoint not found: ${effectiveEntrypointKey}`,
+        path: 'entrypointKey',
+      };
+    }
 
-    for (const variable of sortedVariables) {
-      const rawValue = readPath(inputs, variable.path);
-      const hasDefault = 'default' in variable;
+    if (!isPlainObject(rawInputs)) {
+      return {
+        ok: false,
+        message: 'inputs must be an object',
+        path: 'inputs',
+      };
+    }
 
-      let effectiveValue: unknown;
-      if (rawValue === undefined) {
-        if (!variable.required && hasDefault) {
-          effectiveValue = variable.default;
-        } else {
-          effectiveValue = null;
-        }
-      } else {
-        effectiveValue = rawValue;
-      }
+    const rawGlobals = rawInputs['globals'];
+    const rawParams = rawInputs['params'];
 
-      if (effectiveValue === null) {
-        if (variable.required) {
-          return {
-            ok: false,
-            message: `required input is missing: ${variable.path}`,
-            path: variable.path,
-          };
-        }
-        canonicalizedVariables[variable.path] = null;
-        continue;
-      }
+    if (rawGlobals !== undefined && !isPlainObject(rawGlobals)) {
+      return {
+        ok: false,
+        message: 'inputs.globals must be an object',
+        path: 'inputs.globals',
+      };
+    }
+    if (rawParams !== undefined && !isPlainObject(rawParams)) {
+      return {
+        ok: false,
+        message: 'inputs.params must be an object',
+        path: 'inputs.params',
+      };
+    }
 
-      const canonicalized = canonicalizeValueByType(
-        variable.valueType,
-        effectiveValue,
-      );
-      if (!canonicalized.ok) {
-        return {
-          ok: false,
-          message: `invalid value for ${variable.path}: ${canonicalized.message}`,
-          path: variable.path,
-        };
-      }
+    const globalsContainer = (rawGlobals ?? {}) as Record<string, unknown>;
+    const paramsContainer = (rawParams ?? {}) as Record<string, unknown>;
 
-      canonicalizedVariables[variable.path] = canonicalized.value;
+    const globalsSnapshot = this.buildInputValuesSnapshot(
+      graph.globals,
+      globalsContainer,
+      'globals',
+    );
+    if (!globalsSnapshot.ok) {
+      return globalsSnapshot;
+    }
+
+    const paramsSnapshot = this.buildInputValuesSnapshot(
+      entrypoint.params,
+      paramsContainer,
+      `params(${effectiveEntrypointKey})`,
+    );
+    if (!paramsSnapshot.ok) {
+      return paramsSnapshot;
     }
 
     const canonicalizedOptions = canonicalizeJobOptions(options);
@@ -116,13 +141,17 @@ export class HashingService {
     }
 
     const hashInput = {
-      variables: canonicalizedVariables,
+      entrypointKey: effectiveEntrypointKey,
+      globals: globalsSnapshot.values,
+      params: paramsSnapshot.values,
       options: canonicalizedOptions.value,
     };
 
     return {
       ok: true,
-      variables: canonicalizedVariables,
+      entrypointKeyUsed: effectiveEntrypointKey,
+      globals: globalsSnapshot.values,
+      params: paramsSnapshot.values,
       options: canonicalizedOptions.value as Record<string, unknown>,
       inputsHash: this.sha256Hex(jcsCanonicalize(hashInput)),
     };
@@ -131,7 +160,13 @@ export class HashingService {
   buildOutputsSnapshot(
     outputsSpec: GraphOutput[],
     outputs: Record<string, unknown>,
-  ): OutputsHashResult {
+  ):
+    | {
+        ok: true;
+        outputs: Record<string, unknown>;
+        outputsHash: string;
+      }
+    | OutputsHashResult {
     const sortedSpecs = [...outputsSpec].sort((a, b) =>
       a.key.localeCompare(b.key),
     );
@@ -190,77 +225,151 @@ export class HashingService {
     content: Record<string, unknown>,
   ): GraphJsonV1 {
     const graph = structuredClone(content) as unknown as GraphJsonV1;
-    const graphRecord = graph as unknown as Record<string, unknown>;
 
-    delete graphRecord.metadata;
-    delete graphRecord.resolvers;
-
-    graph.variables = [...graph.variables]
-      .map((variable) => {
-        if (Object.prototype.hasOwnProperty.call(variable, 'default')) {
-          const defaultValue = (variable as { default?: unknown }).default;
-          if (defaultValue !== null && defaultValue !== undefined) {
-            const canonicalized = canonicalizeValueByType(
-              variable.valueType,
-              defaultValue,
-            );
-            if (canonicalized.ok) {
-              return {
-                ...variable,
-                default: canonicalized.value,
-              };
-            }
-          }
-        }
-        return variable;
-      })
-      .sort((a, b) => a.path.localeCompare(b.path));
-
-    graph.nodes = [...graph.nodes].sort((a, b) => a.id.localeCompare(b.id));
-
-    graph.edges = [...graph.edges].sort((left, right) => {
-      const leftKey = `${left.from.nodeId}\u0000${left.from.port}\u0000${left.to.nodeId}\u0000${left.to.port}`;
-      const rightKey = `${right.from.nodeId}\u0000${right.from.port}\u0000${right.to.nodeId}\u0000${right.to.port}`;
-      return leftKey.localeCompare(rightKey);
-    });
-
-    graph.outputs = [...graph.outputs].sort((a, b) =>
-      a.key.localeCompare(b.key),
-    );
-
-    return graph;
+    return {
+      globals: normalizeInputDefs(graph.globals),
+      entrypoints: normalizeEntrypoints(graph.entrypoints),
+      locals: normalizeLocals(graph.locals),
+      nodes: normalizeNodes(graph.nodes),
+      edges: normalizeEdges(graph.edges),
+      execEdges: normalizeEdges(graph.execEdges),
+      outputs: normalizeOutputs(graph.outputs),
+    };
   }
 
   private sha256Hex(input: string): string {
     return createHash('sha256').update(input).digest('hex');
   }
+
+  private buildInputValuesSnapshot(
+    defs: GraphInputDef[],
+    container: Record<string, unknown>,
+    scopeLabel: string,
+  ):
+    | { ok: true; values: Record<string, unknown> }
+    | { ok: false; message: string; path?: string } {
+    const sorted = [...defs].sort((a, b) => a.name.localeCompare(b.name));
+    const values: Record<string, unknown> = {};
+
+    for (const def of sorted) {
+      const rawValue = Object.prototype.hasOwnProperty.call(container, def.name)
+        ? container[def.name]
+        : undefined;
+      const hasDefault = Object.prototype.hasOwnProperty.call(def, 'default');
+
+      let effectiveValue: unknown;
+      if (rawValue === undefined) {
+        if (!def.required && hasDefault) {
+          effectiveValue = def.default;
+        } else {
+          effectiveValue = null;
+        }
+      } else {
+        effectiveValue = rawValue;
+      }
+
+      const logicalPath = `${scopeLabel}.${def.name}`;
+
+      if (effectiveValue === null) {
+        if (def.required) {
+          return {
+            ok: false,
+            message: `required input is missing: ${logicalPath}`,
+            path: logicalPath,
+          };
+        }
+        values[def.name] = null;
+        continue;
+      }
+
+      const canonicalized = canonicalizeValueByType(
+        def.valueType,
+        effectiveValue,
+      );
+      if (!canonicalized.ok) {
+        return {
+          ok: false,
+          message: `invalid value for ${logicalPath}: ${canonicalized.message}`,
+          path: logicalPath,
+        };
+      }
+
+      values[def.name] = canonicalized.value;
+    }
+
+    return { ok: true, values };
+  }
 }
 
-function readPath(
-  inputs: Record<string, unknown>,
-  variablePath: string,
-): unknown {
-  const segments = variablePath.split('.');
-  if (segments.length < 2 || segments[0] !== 'inputs') {
-    return undefined;
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object') {
+    return false;
   }
+  const prototype = Object.getPrototypeOf(value) as object | null;
+  return prototype === Object.prototype || prototype === null;
+}
 
-  let current: unknown = inputs;
-  for (let i = 1; i < segments.length; i++) {
-    const segment = segments[i];
-    if (!segment) {
-      return undefined;
-    }
-    if (current === null || typeof current !== 'object') {
-      return undefined;
-    }
+function normalizeInputDefs(defs: GraphInputDef[]): GraphInputDef[] {
+  return [...(defs ?? [])]
+    .map((def) => {
+      if (Object.prototype.hasOwnProperty.call(def, 'default')) {
+        const defaultValue = (def as { default?: unknown }).default;
+        if (defaultValue !== null && defaultValue !== undefined) {
+          const canonicalized = canonicalizeValueByType(
+            def.valueType,
+            defaultValue,
+          );
+          if (canonicalized.ok) {
+            return { ...def, default: canonicalized.value };
+          }
+        }
+      }
+      return def;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
 
-    const container = current as Record<string, unknown>;
-    if (!Object.prototype.hasOwnProperty.call(container, segment)) {
-      return undefined;
-    }
-    current = container[segment];
-  }
+function normalizeEntrypoints(entrypoints: GraphEntrypoint[]): GraphEntrypoint[] {
+  return [...(entrypoints ?? [])]
+    .map((ep) => ({
+      ...ep,
+      params: normalizeInputDefs(ep.params),
+    }))
+    .sort((a, b) => a.key.localeCompare(b.key));
+}
 
-  return current;
+function normalizeLocals(locals: GraphLocalDef[]): GraphLocalDef[] {
+  return [...(locals ?? [])]
+    .map((local) => {
+      if (Object.prototype.hasOwnProperty.call(local, 'default')) {
+        const defaultValue = (local as { default?: unknown }).default;
+        if (defaultValue !== null && defaultValue !== undefined) {
+          const canonicalized = canonicalizeValueByType(
+            local.valueType,
+            defaultValue,
+          );
+          if (canonicalized.ok) {
+            return { ...local, default: canonicalized.value };
+          }
+        }
+      }
+      return local;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function normalizeNodes(nodes: GraphNode[]): GraphNode[] {
+  return [...(nodes ?? [])].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function normalizeEdges(edges: GraphEdge[]): GraphEdge[] {
+  return [...(edges ?? [])].sort((left, right) => {
+    const leftKey = `${left.from.nodeId}\u0000${left.from.port}\u0000${left.to.nodeId}\u0000${left.to.port}`;
+    const rightKey = `${right.from.nodeId}\u0000${right.from.port}\u0000${right.to.nodeId}\u0000${right.to.port}`;
+    return leftKey.localeCompare(rightKey);
+  });
+}
+
+function normalizeOutputs(outputs: GraphOutput[]): GraphOutput[] {
+  return [...(outputs ?? [])].sort((a, b) => a.key.localeCompare(b.key));
 }

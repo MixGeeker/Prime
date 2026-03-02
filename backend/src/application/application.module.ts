@@ -8,12 +8,12 @@ import { GraphValidatorService } from './validation/graph-validator.service';
 import { ValidateDefinitionUseCase } from './use-cases/validate-definition.use-case';
 import { CreateDraftUseCase } from './use-cases/create-draft.use-case';
 import { DeleteDraftUseCase } from './use-cases/delete-draft.use-case';
-import { DeprecateVersionUseCase } from './use-cases/deprecate-version.use-case';
+import { DeprecateReleaseUseCase } from './use-cases/deprecate-release.use-case';
 import { DryRunUseCase } from './use-cases/dry-run.use-case';
 import { GetDraftUseCase } from './use-cases/get-draft.use-case';
 import { GetJobUseCase } from './use-cases/get-job.use-case';
-import { GetVersionUseCase } from './use-cases/get-version.use-case';
-import { ListVersionsUseCase } from './use-cases/list-versions.use-case';
+import { GetReleaseUseCase } from './use-cases/get-release.use-case';
+import { ListReleasesUseCase } from './use-cases/list-releases.use-case';
 import { PublishDefinitionUseCase } from './use-cases/publish-definition.use-case';
 import { UpdateDraftUseCase } from './use-cases/update-draft.use-case';
 import { HashingService } from './hashing/hashing.service';
@@ -36,9 +36,9 @@ import { RUNNER_PORT } from './ports/runner.port';
     UpdateDraftUseCase,
     DeleteDraftUseCase,
     PublishDefinitionUseCase,
-    DeprecateVersionUseCase,
-    ListVersionsUseCase,
-    GetVersionUseCase,
+    DeprecateReleaseUseCase,
+    ListReleasesUseCase,
+    GetReleaseUseCase,
     GetJobUseCase,
     DryRunUseCase,
     HashingService,
@@ -59,9 +59,9 @@ import { RUNNER_PORT } from './ports/runner.port';
     UpdateDraftUseCase,
     DeleteDraftUseCase,
     PublishDefinitionUseCase,
-    DeprecateVersionUseCase,
-    ListVersionsUseCase,
-    GetVersionUseCase,
+    DeprecateReleaseUseCase,
+    ListReleasesUseCase,
+    GetReleaseUseCase,
     GetJobUseCase,
     DryRunUseCase,
     HashingService,

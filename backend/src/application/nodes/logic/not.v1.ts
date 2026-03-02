@@ -4,7 +4,6 @@ import { toBoolean } from '../shared/value-parsers';
 export const LOGIC_NOT_V1: NodeImplementation = {
   def: {
     nodeType: 'logic.not',
-    nodeVersion: 1,
     title: '非',
     category: 'logic',
     description: 'Boolean NOT：!value',

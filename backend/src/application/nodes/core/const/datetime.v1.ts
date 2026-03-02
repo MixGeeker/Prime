@@ -5,7 +5,6 @@ import type { NodeImplementation } from '../../node-implementation.types';
 export const CORE_CONST_DATETIME_V1: NodeImplementation = {
   def: {
     nodeType: 'core.const.datetime',
-    nodeVersion: 1,
     title: '常量（DateTime）',
     category: 'core',
     inputs: [],

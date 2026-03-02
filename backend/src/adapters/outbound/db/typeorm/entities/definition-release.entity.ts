@@ -2,29 +2,26 @@ import { Column, Entity, JoinColumn, ManyToOne, PrimaryColumn } from 'typeorm';
 import { DefinitionEntity } from './definition.entity';
 
 /**
- * definition_versions 表：发布版本（冻结、append-only）。
+ * definition_releases 表：发布物（冻结、append-only）。
  *
  * 约束：
- * - `(definition_id, version)` 作为复合主键
- * - 发布后不可更新；如需改动必须发布新版本
+ * - `definition_hash` 全局唯一（主键）
+ * - 发布后不可更新；如需改动必须发布新的 definitionHash
  */
-@Entity({ name: 'definition_versions' })
-export class DefinitionVersionEntity {
-  @PrimaryColumn({ name: 'definition_id', type: 'text' })
+@Entity({ name: 'definition_releases' })
+export class DefinitionReleaseEntity {
+  @PrimaryColumn({ name: 'definition_hash', type: 'text' })
+  definitionHash!: string;
+
+  @Column({ name: 'definition_id', type: 'text' })
   definitionId!: string;
 
   @ManyToOne(() => DefinitionEntity, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'definition_id' })
   definition!: DefinitionEntity;
 
-  @PrimaryColumn({ name: 'version', type: 'int' })
-  version!: number;
-
   @Column({ name: 'status', type: 'text' })
   status!: string;
-
-  @Column({ name: 'definition_hash', type: 'text' })
-  definitionHash!: string;
 
   @Column({ name: 'content_json', type: 'jsonb' })
   contentJson!: Record<string, unknown>;
@@ -50,3 +47,4 @@ export class DefinitionVersionEntity {
   @Column({ name: 'deprecated_reason', type: 'text', nullable: true })
   deprecatedReason!: string | null;
 }
+

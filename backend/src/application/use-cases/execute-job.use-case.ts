@@ -60,14 +60,14 @@ export class ExecuteJobUseCase {
     const outboxEventId = randomUUID();
 
     const result: TransactionResult = await this.unitOfWork.runInTransaction(
-      async ({ jobRepo, versionRepo, outboxRepo }) => {
+      async ({ jobRepo, releaseRepo, outboxRepo }) => {
         const insertResult = await jobRepo.tryInsertRequested({
           jobId: command.payload.jobId,
           requestHash,
           messageId: command.messageId ?? null,
           correlationId: command.correlationId ?? null,
           definitionId: command.payload.definitionRef.definitionId,
-          versionUsed: command.payload.definitionRef.version,
+          definitionHashUsed: command.payload.definitionRef.definitionHash,
         });
 
         if (insertResult.kind === 'duplicate') {
@@ -81,32 +81,31 @@ export class ExecuteJobUseCase {
 
         const definitionRefUsed = {
           definitionId: command.payload.definitionRef.definitionId,
-          version: command.payload.definitionRef.version,
+          definitionHash: command.payload.definitionRef.definitionHash,
         };
 
-        let definitionHash: string | null = null;
         let inputsHash: string | null = null;
 
         try {
-          const version = await versionRepo.getVersion(
+          const release = await releaseRepo.getRelease(
             definitionRefUsed.definitionId,
-            definitionRefUsed.version,
+            definitionRefUsed.definitionHash,
           );
-          if (!version) {
+          if (!release) {
             throw new UseCaseError(
               'DEFINITION_NOT_FOUND',
-              `definition not found: ${definitionRefUsed.definitionId}@${definitionRefUsed.version}`,
+              `definition not found: ${definitionRefUsed.definitionId}@${definitionRefUsed.definitionHash}`,
             );
           }
-          if (version.status !== 'published') {
+          if (release.status !== 'published') {
             throw new UseCaseError(
               'DEFINITION_NOT_PUBLISHED',
-              `definition is not published: ${definitionRefUsed.definitionId}@${definitionRefUsed.version}`,
+              `definition is not published: ${definitionRefUsed.definitionId}@${definitionRefUsed.definitionHash}`,
             );
           }
 
           const graphIssues = this.graphValidatorService.validateGraph(
-            version.content,
+            release.content,
           );
           const graphErrors = graphIssues.filter(
             (issue) => issue.severity === 'error',
@@ -119,19 +118,25 @@ export class ExecuteJobUseCase {
             );
           }
 
-          const graph = version.content as unknown as GraphJsonV1;
+          const graph = release.content as unknown as GraphJsonV1;
           const computedDefinitionHash =
             this.hashingService.computeDefinitionHash({
               contentType: 'graph_json',
-              content: version.content,
-              outputSchema: version.outputSchema,
-              runnerConfig: version.runnerConfig,
+              content: release.content,
+              outputSchema: release.outputSchema,
+              runnerConfig: release.runnerConfig,
             });
-          definitionHash = computedDefinitionHash;
+          if (computedDefinitionHash !== release.definitionHash) {
+            throw new UseCaseError(
+              'INTERNAL_ERROR',
+              `definitionHash mismatch: ${release.definitionId}@${release.definitionHash}`,
+            );
+          }
 
           const inputsSnapshot = this.hashingService.buildInputsSnapshot(
-            graph.variables,
+            graph,
             command.payload.inputs,
+            command.payload.entrypointKey,
             command.payload.options,
           );
           if (!inputsSnapshot.ok) {
@@ -147,9 +152,13 @@ export class ExecuteJobUseCase {
           let runnerOutputs: Record<string, unknown>;
           try {
             runnerOutputs = this.runnerPort.run({
-              content: version.content,
-              variableValues: inputsSnapshot.variables ?? {},
-              runnerConfig: version.runnerConfig,
+              content: release.content,
+              entrypointKey: command.payload.entrypointKey,
+              inputs: {
+                globals: inputsSnapshot.globals ?? {},
+                params: inputsSnapshot.params ?? {},
+              },
+              runnerConfig: release.runnerConfig,
               options: inputsSnapshot.options ?? {},
             }).outputs;
           } catch (error) {
@@ -176,7 +185,6 @@ export class ExecuteJobUseCase {
           const computedAt = new Date();
           await jobRepo.markSucceeded({
             jobId: command.payload.jobId,
-            definitionHash: computedDefinitionHash,
             inputsHash: computedInputsHash,
             outputsHash: computedOutputsHash,
             outputs: computedOutputs,
@@ -191,7 +199,6 @@ export class ExecuteJobUseCase {
               schemaVersion: 1,
               jobId: command.payload.jobId,
               definitionRefUsed,
-              definitionHash: computedDefinitionHash,
               inputsHash: computedInputsHash,
               outputs: computedOutputs,
               outputsHash: computedOutputsHash,
@@ -213,7 +220,6 @@ export class ExecuteJobUseCase {
 
           await jobRepo.markFailed({
             jobId: command.payload.jobId,
-            definitionHash,
             inputsHash,
             errorCode: failure.code,
             errorMessage: failure.message,
@@ -228,7 +234,6 @@ export class ExecuteJobUseCase {
               schemaVersion: 1,
               jobId: command.payload.jobId,
               definitionRefUsed,
-              definitionHash: definitionHash ?? undefined,
               inputsHash: inputsHash ?? undefined,
               error: {
                 code: failure.code,

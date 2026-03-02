@@ -5,7 +5,6 @@ import type { NodeImplementation } from '../../node-implementation.types';
 export const CORE_CONST_STRING_V1: NodeImplementation = {
   def: {
     nodeType: 'core.const.string',
-    nodeVersion: 1,
     title: '常量（String）',
     category: 'core',
     inputs: [],

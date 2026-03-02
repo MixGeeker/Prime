@@ -6,7 +6,6 @@ import { toDecimal } from '../shared/decimal-runtime';
 export const MATH_DIV_V1: NodeImplementation = {
   def: {
     nodeType: 'math.div',
-    nodeVersion: 1,
     title: '除法',
     category: 'math',
     description: 'Decimal 除法：a / b（除零语义在 runner 里定义）',

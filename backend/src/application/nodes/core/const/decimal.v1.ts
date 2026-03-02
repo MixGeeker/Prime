@@ -5,7 +5,6 @@ import type { NodeImplementation } from '../../node-implementation.types';
 export const CORE_CONST_DECIMAL_V1: NodeImplementation = {
   def: {
     nodeType: 'core.const.decimal',
-    nodeVersion: 1,
     title: '常量（Decimal）',
     category: 'core',
     description: '在图中内联一个 Decimal 常量。',

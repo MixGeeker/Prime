@@ -1,11 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsIn,
-  IsInt,
   IsObject,
   IsOptional,
   IsString,
-  Min,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -23,9 +21,8 @@ class DefinitionRefDto {
   definitionId!: string;
 
   @ApiProperty()
-  @IsInt()
-  @Min(1)
-  version!: number;
+  @IsString()
+  definitionHash!: string;
 }
 
 class DefinitionDto {
@@ -103,6 +100,11 @@ export class DryRunDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsString()
+  entrypointKey?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsObject()
   options?: Record<string, unknown>;
 }
@@ -118,7 +120,7 @@ export class PublishDefinitionDto {
   changelog?: string;
 }
 
-export class DeprecateVersionDto {
+export class DeprecateReleaseDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

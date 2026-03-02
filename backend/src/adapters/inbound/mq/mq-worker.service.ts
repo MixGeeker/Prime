@@ -258,7 +258,7 @@ export class MqWorkerService implements OnModuleInit, OnModuleDestroy {
               correlationId,
               jobId,
               definitionId: definitionRef.definitionId,
-              versionUsed: definitionRef.version,
+              definitionHashUsed: definitionRef.definitionHash,
             }),
           );
           this.metricsService.incJobRequested('reject_dlq');
@@ -273,7 +273,7 @@ export class MqWorkerService implements OnModuleInit, OnModuleDestroy {
             correlationId,
             jobId,
             definitionId: definitionRef.definitionId,
-            versionUsed: definitionRef.version,
+            definitionHashUsed: definitionRef.definitionHash,
             result: failResult.kind,
           }),
         );
@@ -298,7 +298,7 @@ export class MqWorkerService implements OnModuleInit, OnModuleDestroy {
             correlationId,
             jobId: payload.jobId,
             definitionId: payload.definitionRef.definitionId,
-            versionUsed: payload.definitionRef.version,
+            definitionHashUsed: payload.definitionRef.definitionHash,
           }),
         );
         this.metricsService.incJobRequested('reject_dlq');
@@ -313,7 +313,7 @@ export class MqWorkerService implements OnModuleInit, OnModuleDestroy {
           correlationId,
           jobId: payload.jobId,
           definitionId: payload.definitionRef.definitionId,
-          versionUsed: payload.definitionRef.version,
+          definitionHashUsed: payload.definitionRef.definitionHash,
           result: execResult.kind,
         }),
       );
@@ -603,29 +603,25 @@ function readNonEmptyString(value: unknown): string | null {
 
 function parseDefinitionRef(
   value: unknown,
-): { definitionId: string; version: number } | null {
+): { definitionId: string; definitionHash: string } | null {
   if (!isPlainObject(value)) {
     return null;
   }
   const definitionId = readNonEmptyString(value['definitionId']);
-  const version = value['version'];
+  const definitionHash = readNonEmptyString(value['definitionHash']);
   if (!definitionId) {
     return null;
   }
-  if (
-    typeof version !== 'number' ||
-    !Number.isInteger(version) ||
-    version <= 0
-  ) {
+  if (!definitionHash) {
     return null;
   }
-  return { definitionId, version };
+  return { definitionId, definitionHash };
 }
 
 function validateJobRequestedPayload(
   root: Record<string, unknown>,
   jobId: string,
-  definitionRef: { definitionId: string; version: number },
+  definitionRef: { definitionId: string; definitionHash: string },
 ):
   | { ok: true; payload: ComputeJobRequestedV1 }
   | { ok: false; reason: string; details?: unknown } {
@@ -654,12 +650,24 @@ function validateJobRequestedPayload(
   }
   const optionsValue = isPlainObject(options) ? options : undefined;
 
+  const entrypointKey = root['entrypointKey'];
+  if (entrypointKey !== undefined && typeof entrypointKey !== 'string') {
+    return {
+      ok: false,
+      reason: 'entrypointKey must be a string when provided',
+    };
+  }
+
   return {
     ok: true,
     payload: {
       schemaVersion: 1,
       jobId,
       definitionRef,
+      entrypointKey:
+        typeof entrypointKey === 'string' && entrypointKey.length > 0
+          ? entrypointKey
+          : undefined,
       inputs,
       options: optionsValue,
     },

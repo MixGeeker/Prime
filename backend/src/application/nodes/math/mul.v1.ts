@@ -5,7 +5,6 @@ import { toDecimal } from '../shared/decimal-runtime';
 export const MATH_MUL_V1: NodeImplementation = {
   def: {
     nodeType: 'math.mul',
-    nodeVersion: 1,
     title: '乘法',
     category: 'math',
     description: 'Decimal 乘法：a * b',

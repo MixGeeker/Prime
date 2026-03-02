@@ -4,9 +4,9 @@ import {
   type DefinitionDraftRepositoryPort,
 } from '../ports/definition-draft-repository.port';
 import {
-  DEFINITION_VERSION_REPOSITORY,
-  type DefinitionVersionRepositoryPort,
-} from '../ports/definition-version-repository.port';
+  DEFINITION_RELEASE_REPOSITORY,
+  type DefinitionReleaseRepositoryPort,
+} from '../ports/definition-release-repository.port';
 import { GraphValidatorService } from '../validation/graph-validator.service';
 import { HashingService } from '../hashing/hashing.service';
 import { UseCaseError } from './use-case.error';
@@ -22,8 +22,8 @@ export class PublishDefinitionUseCase {
   constructor(
     @Inject(DEFINITION_DRAFT_REPOSITORY)
     private readonly draftRepository: DefinitionDraftRepositoryPort,
-    @Inject(DEFINITION_VERSION_REPOSITORY)
-    private readonly versionRepository: DefinitionVersionRepositoryPort,
+    @Inject(DEFINITION_RELEASE_REPOSITORY)
+    private readonly releaseRepository: DefinitionReleaseRepositoryPort,
     private readonly graphValidatorService: GraphValidatorService,
     private readonly hashingService: HashingService,
   ) {}
@@ -65,31 +65,28 @@ export class PublishDefinitionUseCase {
       runnerConfig: draft.runnerConfig,
     });
 
-    const existing = await this.versionRepository.listVersions(
-      command.definitionId,
-    );
-    const nextVersion =
-      existing.reduce((maxVersion, current) => {
-        return current.version > maxVersion ? current.version : maxVersion;
-      }, 0) + 1;
-
-    const publishedAt = new Date();
-    await this.versionRepository.insertVersion({
-      definitionId: draft.definitionId,
-      version: nextVersion,
-      status: 'published',
+    const existing = await this.releaseRepository.getRelease(
+      draft.definitionId,
       definitionHash,
-      content: draft.content,
-      outputSchema: draft.outputSchema,
-      runnerConfig: draft.runnerConfig,
-      changelog: command.changelog ?? null,
-      publishedAt,
-      publishedBy: null,
-    });
+    );
+
+    const publishedAt = existing?.publishedAt ?? new Date();
+    if (!existing) {
+      await this.releaseRepository.insertRelease({
+        definitionId: draft.definitionId,
+        definitionHash,
+        status: 'published',
+        content: draft.content,
+        outputSchema: draft.outputSchema,
+        runnerConfig: draft.runnerConfig,
+        changelog: command.changelog ?? null,
+        publishedAt,
+        publishedBy: null,
+      });
+    }
 
     return {
       definitionId: draft.definitionId,
-      version: nextVersion,
       definitionHash,
       publishedAt: publishedAt.toISOString(),
     };

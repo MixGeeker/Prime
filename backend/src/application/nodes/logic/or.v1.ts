@@ -4,7 +4,6 @@ import { toBoolean } from '../shared/value-parsers';
 export const LOGIC_OR_V1: NodeImplementation = {
   def: {
     nodeType: 'logic.or',
-    nodeVersion: 1,
     title: '或',
     category: 'logic',
     description: 'Boolean OR：a || b',

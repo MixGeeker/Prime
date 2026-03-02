@@ -13,11 +13,10 @@ dotenv.config();
 import { DataSource } from 'typeorm';
 import { DefinitionDraftEntity } from './entities/definition-draft.entity';
 import { DefinitionEntity } from './entities/definition.entity';
-import { DefinitionVersionEntity } from './entities/definition-version.entity';
+import { DefinitionReleaseEntity } from './entities/definition-release.entity';
 import { JobEntity } from './entities/job.entity';
 import { OutboxEntity } from './entities/outbox.entity';
-import { CloseoutM1M4AuditFields1772400000000 } from './migrations/1772400000000-CloseoutM1M4AuditFields';
-import { InitComputeEngineM11772323541439 } from './migrations/1772323541439-InitComputeEngineM1';
+import { InitBlueprintEngine0000000000000 } from './migrations/0000000000000-InitBlueprintEngine';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -30,15 +29,12 @@ export const ComputeEngineDataSource = new DataSource({
   entities: [
     DefinitionEntity,
     DefinitionDraftEntity,
-    DefinitionVersionEntity,
+    DefinitionReleaseEntity,
     JobEntity,
     OutboxEntity,
   ],
   // 显式注册 migrations，避免运行时扫描导致顺序不一致。
-  migrations: [
-    InitComputeEngineM11772323541439,
-    CloseoutM1M4AuditFields1772400000000,
-  ],
+  migrations: [InitBlueprintEngine0000000000000],
   synchronize: false,
   migrationsRun: false,
 });

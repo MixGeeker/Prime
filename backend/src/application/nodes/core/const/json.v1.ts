@@ -5,7 +5,6 @@ import type { NodeImplementation } from '../../node-implementation.types';
 export const CORE_CONST_JSON_V1: NodeImplementation = {
   def: {
     nodeType: 'core.const.json',
-    nodeVersion: 1,
     title: '常量（Json）',
     category: 'core',
     inputs: [],

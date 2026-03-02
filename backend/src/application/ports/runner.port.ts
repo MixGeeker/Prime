@@ -2,7 +2,11 @@ export const RUNNER_PORT = Symbol('RunnerPort');
 
 export interface RunnerRunParams {
   content: Record<string, unknown>;
-  variableValues: Record<string, unknown>;
+  entrypointKey?: string;
+  inputs: {
+    globals: Record<string, unknown>;
+    params: Record<string, unknown>;
+  };
   runnerConfig?: Record<string, unknown> | null;
   options?: Record<string, unknown> | null;
 }

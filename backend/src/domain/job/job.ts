@@ -14,8 +14,7 @@ export interface JobRecord {
   messageId: string | null;
   correlationId: string | null;
   definitionId: string;
-  versionUsed: number;
-  definitionHash: string | null;
+  definitionHashUsed: string;
   inputsHash: string | null;
   outputsHash: string | null;
   status: JobStatus;
@@ -34,5 +33,5 @@ export interface NewJobRequested {
   messageId: string | null;
   correlationId: string | null;
   definitionId: string;
-  versionUsed: number;
+  definitionHashUsed: string;
 }

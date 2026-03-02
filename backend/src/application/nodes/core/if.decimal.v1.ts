@@ -5,7 +5,6 @@ import { toBoolean } from '../shared/value-parsers';
 export const CORE_IF_DECIMAL_V1: NodeImplementation = {
   def: {
     nodeType: 'core.if.decimal',
-    nodeVersion: 1,
     title: '条件（Decimal）',
     category: 'core',
     description: 'cond ? then : else',

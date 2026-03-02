@@ -20,7 +20,6 @@ export interface JobRepositoryPort {
   markRunning(jobId: string): Promise<void>;
   markSucceeded(params: {
     jobId: string;
-    definitionHash: string;
     inputsHash: string;
     outputsHash: string;
     outputs: Record<string, unknown>;
@@ -29,7 +28,6 @@ export interface JobRepositoryPort {
   }): Promise<void>;
   markFailed(params: {
     jobId: string;
-    definitionHash: string | null;
     inputsHash: string | null;
     errorCode: string;
     errorMessage: string;

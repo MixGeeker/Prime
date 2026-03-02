@@ -16,6 +16,7 @@ export function computeJobRequestHash(payload: ComputeJobRequestedV1): string {
     schemaVersion: payload.schemaVersion,
     jobId: payload.jobId,
     definitionRef: payload.definitionRef,
+    entrypointKey: payload.entrypointKey,
     inputs: payload.inputs,
     options: payload.options,
   });

@@ -23,9 +23,8 @@ export class GetJobUseCase {
       status: job.status,
       definitionRefUsed: {
         definitionId: job.definitionId,
-        version: job.versionUsed,
+        definitionHash: job.definitionHashUsed,
       },
-      definitionHash: job.definitionHash,
       inputsHash: job.inputsHash,
       outputs: job.outputs,
       outputsHash: job.outputsHash,

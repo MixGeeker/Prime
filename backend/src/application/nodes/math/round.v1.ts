@@ -10,7 +10,6 @@ import { getNonNegativeInt } from '../shared/value-parsers';
 export const MATH_ROUND_V1: NodeImplementation = {
   def: {
     nodeType: 'math.round',
-    nodeVersion: 1,
     title: '取整/舍入',
     category: 'math',
     description: 'Decimal 舍入：round(value, scale, mode)',

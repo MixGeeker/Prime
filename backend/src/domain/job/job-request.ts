@@ -8,8 +8,9 @@ export interface ComputeJobRequestedV1 {
   jobId: string;
   definitionRef: {
     definitionId: string;
-    version: number;
+    definitionHash: string;
   };
+  entrypointKey?: string;
   inputs: Record<string, unknown>;
   options?: Record<string, unknown>;
 }

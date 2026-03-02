@@ -2,41 +2,41 @@ import { RunnerExecutionError } from '../../../runner/runner.error';
 import type { NodeImplementation } from '../../node-implementation.types';
 import { getString } from '../../shared/value-parsers';
 
-export const CORE_VAR_DATETIME_V1: NodeImplementation = {
+export const INPUTS_PARAMS_DATETIME_V1: NodeImplementation = {
   def: {
-    nodeType: 'core.var.datetime',
-    nodeVersion: 1,
-    title: '变量（DateTime）',
-    category: 'core',
-    description: '从 inputs 读取一个 DateTime（ISO 字符串）变量。',
+    nodeType: 'inputs.params.datetime',
+    title: '读取入口参数（DateTime）',
+    category: 'inputs',
+    description: '从 inputs.params 读取一个 DateTime（params.name）。',
     inputs: [],
     outputs: [{ name: 'value', valueType: 'DateTime' }],
     paramsSchema: {
       $schema: 'http://json-schema.org/draft-07/schema#',
       type: 'object',
       additionalProperties: false,
-      required: ['path'],
+      required: ['name'],
       properties: {
-        path: { type: 'string', minLength: 1 },
+        name: { type: 'string', minLength: 1 },
       },
     },
   },
-  evaluate({ node, variableValues }) {
-    const path = getString(node.params?.['path']);
-    if (!path) {
+  evaluate({ node, runtime }) {
+    const name = getString(node.params?.['name']);
+    if (!name) {
       throw new RunnerExecutionError(
         'RUNNER_DETERMINISTIC_ERROR',
-        `core.var node requires params.path: ${node.id}`,
+        `inputs.params node requires params.name: ${node.id}`,
       );
     }
-    if (!Object.prototype.hasOwnProperty.call(variableValues, path)) {
+    if (!Object.prototype.hasOwnProperty.call(runtime.params, name)) {
       throw new RunnerExecutionError(
         'RUNNER_DETERMINISTIC_ERROR',
-        `variable path is not available at runtime: ${path}`,
+        `entrypoint param is not available at runtime: ${name}`,
       );
     }
     return {
-      value: variableValues[path],
+      value: runtime.params[name],
     };
   },
 };
+

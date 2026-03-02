@@ -6,7 +6,7 @@ import type { DataSource } from 'typeorm';
 import { TypeOrmDraftRepository } from './repositories/typeorm-draft.repository';
 import { TypeOrmJobRepository } from './repositories/typeorm-job.repository';
 import { TypeOrmOutboxRepository } from './repositories/typeorm-outbox.repository';
-import { TypeOrmVersionRepository } from './repositories/typeorm-version.repository';
+import { TypeOrmReleaseRepository } from './repositories/typeorm-release.repository';
 
 /**
  * UnitOfWork 的 TypeORM 实现：
@@ -22,7 +22,7 @@ export class TypeOrmUnitOfWork implements UnitOfWorkPort {
     return this.dataSource.transaction(async (manager) => {
       const repos: UnitOfWorkRepos = {
         draftRepo: new TypeOrmDraftRepository(manager),
-        versionRepo: new TypeOrmVersionRepository(manager),
+        releaseRepo: new TypeOrmReleaseRepository(manager),
         jobRepo: new TypeOrmJobRepository(manager),
         outboxRepo: new TypeOrmOutboxRepository(manager),
       };

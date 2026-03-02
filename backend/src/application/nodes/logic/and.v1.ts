@@ -4,7 +4,6 @@ import { toBoolean } from '../shared/value-parsers';
 export const LOGIC_AND_V1: NodeImplementation = {
   def: {
     nodeType: 'logic.and',
-    nodeVersion: 1,
     title: '与',
     category: 'logic',
     description: 'Boolean AND：a && b',

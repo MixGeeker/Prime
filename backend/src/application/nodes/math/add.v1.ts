@@ -5,7 +5,6 @@ import { toDecimal } from '../shared/decimal-runtime';
 export const MATH_ADD_V1: NodeImplementation = {
   def: {
     nodeType: 'math.add',
-    nodeVersion: 1,
     title: '加法',
     category: 'math',
     description: 'Decimal 加法：a + b',

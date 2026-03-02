@@ -4,7 +4,6 @@ import { toDecimal } from '../../shared/decimal-runtime';
 export const COMPARE_DECIMAL_NE_V1: NodeImplementation = {
   def: {
     nodeType: 'compare.decimal.ne',
-    nodeVersion: 1,
     title: '不等于（Decimal）',
     category: 'compare',
     inputs: [

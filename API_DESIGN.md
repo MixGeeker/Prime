@@ -5,7 +5,7 @@
 ## 1. 总览
 
 ### 1.1 目标
-- 管理 Definition：draft CRUD、校验、发布（publish）、弃用（deprecate）、查看版本/审计信息。
+- 管理 Definition：draft CRUD、校验、发布（publish）、弃用（deprecate）、查看发布物/审计信息。
 - 支撑自定义 Editor：节点目录（Node Catalog）、结构化校验错误、预览（dry-run）。
 - 支撑运行：MQ 接收 `compute.job.requested.v1`，发布 `compute.job.succeeded.v1 / failed.v1`。
 
@@ -25,7 +25,8 @@
 - payload：
   - `schemaVersion`: `1`
   - `jobId`: string（UUID/ULID）
-  - `definitionRef`: `{ definitionId: string, version: number }`
+  - `definitionRef`: `{ definitionId: string, definitionHash: string }`
+  - `entrypointKey?`: string（默认 `main`）
   - `inputs`: `{ [key: string]: unknown }`
   - `options?`: `{ decimal?: { precision?: number, roundingMode?: string } }`（执行覆盖项；会进入 `inputsHash`）
 
@@ -34,8 +35,7 @@
 - payload：
   - `schemaVersion`: `1`
   - `jobId`: string
-  - `definitionRefUsed`: `{ definitionId: string, version: number }`
-  - `definitionHash`: string
+  - `definitionRefUsed`: `{ definitionId: string, definitionHash: string }`
   - `inputsHash`: string
   - `outputs`: `{ [key: string]: unknown }`
   - `outputsHash`: string
@@ -45,8 +45,7 @@
 - payload：
   - `schemaVersion`: `1`
   - `jobId`: string
-  - `definitionRefUsed`: `{ definitionId: string, version: number }`
-  - `definitionHash?`: string（若已成功读取到版本）
+  - `definitionRefUsed`: `{ definitionId: string, definitionHash: string }`
   - `inputsHash?`: string（若已成功完成 inputsHash 计算）
   - `error`: `{ code: string, message: string, details?: unknown }`
   - `retryable`: boolean
@@ -62,8 +61,8 @@
 > `retryable` 是引擎给出的“建议重试”结论；上游可自行覆盖策略。
 
 - `INVALID_MESSAGE`：消息体 schema 不合法/字段缺失（不可重试；若缺少/无法解析 `jobId` 则只能进入 DLQ，不会产生结果事件）。
-- `DEFINITION_NOT_FOUND`：找不到指定 `definitionId+version`（通常不可重试）。
-- `DEFINITION_NOT_PUBLISHED`：引用了 draft 或不可用版本（不可重试）。
+- `DEFINITION_NOT_FOUND`：找不到指定 `definitionId+definitionHash`（通常不可重试）。
+- `DEFINITION_NOT_PUBLISHED`：引用了不可执行的发布物（例如已弃用；不可重试）。
 - `INPUT_VALIDATION_ERROR`：inputs 缺必填/类型不匹配/约束违规（不可重试；details 建议带结构化 errors）。
 - `RUNNER_TIMEOUT`：执行超时/资源限制触发（通常可重试）。
 - `RUNNER_DETERMINISTIC_ERROR`：确定性运行时错误（如除零、类型转换失败；通常不可重试）。
@@ -83,7 +82,7 @@
 - body：
   - `definitionId`: string
   - `contentType`: `'graph_json'`
-  - `content`: object（graphJson；不包含 `runnerConfig`，见 `GRAPH_SCHEMA.md`）
+  - `content`: object（BlueprintGraph；不包含 `runnerConfig`，见 `GRAPH_SCHEMA.md`）
   - `outputSchema?`: object
   - `runnerConfig?`: object
   - `changelog?`: string
@@ -107,7 +106,7 @@
 #### `POST /admin/definitions/validate`
 校验 draft 或一次性 definition（编辑器实时提示）。
 - body（二选一）：
-  - `definitionRef`: `{ definitionId, version }`
+  - `definitionRef`: `{ definitionId, definitionHash }`
   - 或 `definition`: `{ contentType, content, outputSchema?, runnerConfig? }`
 - response：
   - `ok`: boolean
@@ -120,6 +119,7 @@
 给定 definition（或 ref）+ inputs，返回 outputs（不落库、不发 MQ）。
 - body：
   - `definitionRef` 或 `definition`
+  - `entrypointKey?`（默认 `main`）
   - `inputs`
   - `options?`
 - response：
@@ -132,20 +132,20 @@
 ### 3.4 Publish / Deprecate
 
 #### `POST /admin/definitions/:definitionId/publish`
-发布当前 draft 为新版本（vN）。
+发布当前 draft 为一个不可变发布物（Release）。
 - body：`{ draftRevisionId, changelog? }`
-- response：`{ definitionId, version, definitionHash, publishedAt }`
+- response：`{ definitionId, definitionHash, publishedAt }`
 
-#### `POST /admin/definitions/:definitionId/versions/:version/deprecate`
-弃用某个发布版本。
+#### `POST /admin/definitions/:definitionId/releases/:definitionHash/deprecate`
+弃用某个发布物（Release）。
 - body：`{ reason? }`
 
 ### 3.5 Read APIs
-#### `GET /admin/definitions/:definitionId/versions`
-列出所有版本（含 `status/publishedAt/changelog/definitionHash`）。
+#### `GET /admin/definitions/:definitionId/releases`
+列出所有发布物（含 `status/publishedAt/changelog/definitionHash`）。
 
-#### `GET /admin/definitions/:definitionId/versions/:version`
-获取某个发布版本内容（用于 diff/回放）。
+#### `GET /admin/definitions/:definitionId/releases/:definitionHash`
+获取某个发布物内容（用于 diff/回放）。
 
 ### 3.6 Job 查询（运维/排障，建议）
 #### `GET /admin/jobs/:jobId`
@@ -175,10 +175,11 @@
 - `schemaVersion`
 - `nodes`: `Array<{
     nodeType: string,
-    nodeVersion: number,
     title: string,
     category: string,
     description?: string,
+    execInputs?: Array<{ name: string }>,
+    execOutputs?: Array<{ name: string }>,
     inputs: Array<{ name: string, valueType: string }>,
     outputs: Array<{ name: string, valueType: string }>,
     paramsSchema?: object

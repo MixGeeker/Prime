@@ -38,6 +38,7 @@
 - M7：已完成（4/4）
 - M8：已完成（4/4）
 - M9：已完成（3/3）
+- M10：进行中（6/7）— 蓝图控制流重构（去版本号）
 
 ### M0. 项目骨架与工程规范（可启动）
 
@@ -65,13 +66,13 @@
 - 把“版本化 Definition + jobId 幂等 + outbox 可靠发布”落到 DB。
 
 **任务**
-- [x] 建表/迁移（最少：`definitions/definition_drafts/definition_versions/jobs/outbox`；`inbox` 可选）
+- [x] 建表/迁移（最少：`definitions/definition_drafts/definition_releases/jobs/outbox`；`inbox` 可选）
 - [x] 定义 `jobs.request_hash` 规则（用于检测同 `jobId` 不同 payload）
-- [x] Repository adapters（TypeORM）：DraftRepo / VersionRepo / JobRepo / OutboxRepo
+- [x] Repository adapters（TypeORM）：DraftRepo / ReleaseRepo / JobRepo / OutboxRepo
 - [x] 事务边界：`ExecuteJob` 用例里保证 `job + outbox` 同事务提交（MQ ack 时机在 M6 接入 consumer 时实现）
 
 **验收标准（DoD）**
-- `publish` 产出不可变 `definition_versions`（append-only）
+- `publish` 产出不可变 `definition_releases`（append-only，以 `definitionHash` 标识）
 - `jobId` 重复投递不会重复执行（基于 `jobs.job_id` 唯一约束 + request_hash）
 
 **参考**
@@ -91,8 +92,8 @@
 - [x] validate 错误结构化输出：`{ code, severity, path?, message }`
 
 **验收标准（DoD）**
-- Editor 按 `validate` 返回能定位到 node/edge/variable 的错误
-- 不在 catalog 的 `nodeType@version` 必须被拒绝发布/执行
+- Editor 按 `validate` 返回能定位到 node/edge/global/param/local 的错误
+- 不在 catalog 的 `nodeType` 必须被拒绝发布/执行
 
 **参考**
 - `compute-engine/GRAPH_SCHEMA.md`
@@ -109,8 +110,8 @@
 **任务**
 - [x] typed canonicalize（Decimal/Ratio/DateTime）
 - [x] JCS（RFC 8785）序列化（已用 npm 包 `canonicalize` 落地）
-- [x] `definitionHash`：发布时计算；裁剪 `content.metadata/resolvers`；稳定排序（variables/nodes/edges/outputs）
-- [x] `inputsHash`：按 variables.path 全量覆盖；缺失时应用 default；并纳入 `job.options`
+- [x] `definitionHash`：发布时计算；裁剪 `content.metadata/resolvers`；稳定排序（globals/entrypoints/locals/nodes/edges/execEdges/outputs）
+- [x] `inputsHash`：覆盖 `entrypointKey + globals + params + job.options`；缺失时应用 default→null；忽略未声明的 inputs 字段
 - [x] `outputsHash`：只在成功时计算；失败不产生 outputsHash
 - [x] golden cases：至少覆盖（脚本：`backend` 下 `npm run test:hashing`）
   - 同语义不同顺序 → hash 相同（definitionHash）
@@ -137,9 +138,9 @@
 - [x] Draft CRUD：`POST /admin/definitions`、`GET/PUT/DELETE /admin/definitions/:id/draft`
 - [x] `POST /admin/definitions/validate`（支持 `definitionRef` 与 inline `definition`）
 - [x] `POST /admin/definitions/dry-run`（不落库、不发 MQ）
-- [x] `POST /admin/definitions/:id/publish`（生成 vN + 计算 definitionHash）
-- [x] `POST /admin/definitions/:id/versions/:version/deprecate`
-- [x] Read：`GET /admin/definitions/:id/versions`、`GET /admin/definitions/:id/versions/:version`
+- [x] `POST /admin/definitions/:id/publish`（生成 Release + 计算 definitionHash）
+- [x] `POST /admin/definitions/:id/releases/:definitionHash/deprecate`
+- [x] Read：`GET /admin/definitions/:id/releases`、`GET /admin/definitions/:id/releases/:definitionHash`
 - [x] 运维查询：`GET /admin/jobs/:jobId`
 
 **验收标准（DoD）**
@@ -155,16 +156,17 @@
 ### M5. Runner 执行（纯函数、确定性）
 
 **目标**
-- 能执行已发布 DefinitionVersion（graphJson），产出 outputs，并严格遵守纯函数约束。
+- 能执行已发布 DefinitionRelease（BlueprintGraph / `contentType=graph_json`），产出 outputs，并严格遵守纯函数约束。
 
 **任务**
 - [x] RunnerPort（domain/application 只依赖 port）
 - [x] 节点执行（按 Node Catalog 白名单），包含最小节点集合：
-  - [x] `core.var.*@1`、`core.const.*@1`（按 valueType 拆分）
-  - [x] 数值：`math.add/sub/mul/div@1`
+  - [x] `inputs.globals.*`、`inputs.params.*`、`core.const.*`（按 valueType 拆分）
+  - [x] 数值：`math.add/sub/mul/div`
   - [x] 逻辑/比较/if/round（已补齐：`logic.*`、`compare.decimal.*`、`core.if.decimal`、`math.round`）
+  - [x] 控制流与状态：`flow.*`、`locals.*`
 - [x] 节点实现模块化：每个 nodeType 一个文件；按分类目录组织（`backend/src/application/nodes/**`）；Runner service 仅负责编排
-- [x] 执行限制：`runnerConfig.limits`（maxNodes/maxDepth/timeout）
+- [x] 执行限制：`runnerConfig.limits`（maxNodes/maxDepth/maxSteps/timeout/maxCallDepth）
 - [x] 失败分类：确定性错误 vs 超时/资源错误（映射到 `job.failed.error.code` 与 `retryable`）
 
 **验收标准（DoD）**
@@ -187,7 +189,7 @@
 - [x] RabbitMQ consumer（routingKey：`compute.job.requested.v1`）
 - [x] 消息解析与校验（无法解析 `jobId` / `definitionRef` → DLQ；其余字段非法 → 写 `job.failed(INVALID_MESSAGE)` 并 ack）
 - [x] `jobId` 幂等处理（重复 payload 一致 → 直接 ack；不一致 → DLQ）
-- [x] 执行流程：读 DefinitionVersion → validate inputs → defaults → canonicalize → inputsHash → runner → outputsHash
+- [x] 执行流程：读 DefinitionRelease → validate inputs → defaults → canonicalize → inputsHash → runner → outputsHash
 - [x] 事务内写 `jobs + outbox` 后 ack（ack 时机要严格）
 
 **验收标准（DoD）**
@@ -262,14 +264,48 @@
 
 ---
 
+### M10. 蓝图控制流（Blueprint）重构（去版本号）
+
+**目标**
+- 从“DAG 数据流 graphJson”升级为“真正控制流蓝图”（exec 连线、if/loop/break、locals 状态、子蓝图调用）。
+- 对外契约彻底去掉数字版本：以 `definitionHash` 作为不可变发布物标识。
+- 同时保持 Runner 的确定性（纯函数）与可对账能力（hash 可重放）。
+
+**任务**
+- [x] 去版本化：移除 `definition_versions` / `version_used` / `nodeVersion` / graph `schemaVersion`
+- [x] DB 迁移清理重做：引入 `definition_releases`（以 `definitionHash` 标识）+ jobs 记录 `definition_hash_used`
+- [x] BlueprintGraph：`globals/entrypoints(params)/locals/execEdges`；value edges 必须 DAG；execEdges 允许环（loop）
+- [x] Node Catalog：`nodeType` 全局唯一（不再有 nodeVersion）；新增 `execInputs/execOutputs`
+- [x] Runner：控制流解释器（exec token）+ 惰性 value 求值（短路）+ locals store + limits（maxSteps/timeout/maxCallDepth）
+- [x] hashing 与 golden cases 更新（definitionHash/inputsHash/outputsHash）+ 文档对齐（API/Schema/Design）
+- [ ] 子蓝图调用（call_definition）：发布时冻结 callee 为 `definitionHash`；运行期受 `maxCallDepth` 限制
+
+**验收标准（DoD）**
+- publish 返回 `definitionHash`；execute/dry-run/MQ 都能按 `{definitionId, definitionHash}` 精确执行。
+- Branch 真正短路（未走到的分支不执行）。
+- loop 可用且不会卡死 worker（受 `maxSteps/timeoutMs` 限制）。
+- locals set/get 正确可用于循环与状态机。
+- 子蓝图调用（A 调 B）可运行，且发布后引用冻结为 `definitionHash`。
+
+**参考**
+- `compute-engine/API_DESIGN.md`
+- `compute-engine/GRAPH_SCHEMA.md`
+- `compute-engine/COMPUTE_ENGINE_DESIGN.md`
+
+---
+
 ## 3. 最小联调清单（和 Provider/Editor 对上）
 
 - Provider 发 `compute.job.requested.v1`：
   - 必带 `jobId`，重试复用同 jobId
+  - 必带 `definitionRef.definitionId + definitionRef.definitionHash`（不再使用 version）
+  - 可选 `entrypointKey`（默认 `main`）
+  - `inputs` 建议按命名空间组织：`inputs.globals`、`inputs.params`（允许携带多余字段，但引擎只读取声明项）
   - `options` 仅允许 `options.decimal.precision/roundingMode`
 - Editor 发布 Definition：
   - `content` 不包含 runnerConfig（runnerConfig 单独字段提交）
   - `content.metadata` 可随便变，不应影响 `definitionHash`
+  - 若存在子蓝图调用：publish 时应冻结为 `definitionHash`（避免运行期“latest 漂移”）
 
 参考：
 - `compute-engine/PROVIDER_GUIDE.md`

@@ -10,7 +10,7 @@ export interface FailInvalidJobMessageCommand {
   jobId: string;
   definitionRef: {
     definitionId: string;
-    version: number;
+    definitionHash: string;
   };
   rawPayload: unknown;
   reason: string;
@@ -53,7 +53,7 @@ export class FailInvalidJobMessageUseCase {
           messageId: command.messageId ?? null,
           correlationId: command.correlationId ?? null,
           definitionId: command.definitionRef.definitionId,
-          versionUsed: command.definitionRef.version,
+          definitionHashUsed: command.definitionRef.definitionHash,
         });
 
         if (insertResult.kind !== 'inserted') {
@@ -63,7 +63,6 @@ export class FailInvalidJobMessageUseCase {
         const failedAt = new Date();
         await jobRepo.markFailed({
           jobId: command.jobId,
-          definitionHash: null,
           inputsHash: null,
           errorCode: 'INVALID_MESSAGE',
           errorMessage: command.reason,

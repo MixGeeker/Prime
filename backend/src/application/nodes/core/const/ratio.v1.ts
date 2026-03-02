@@ -5,7 +5,6 @@ import type { NodeImplementation } from '../../node-implementation.types';
 export const CORE_CONST_RATIO_V1: NodeImplementation = {
   def: {
     nodeType: 'core.const.ratio',
-    nodeVersion: 1,
     title: '常量（Ratio）',
     category: 'core',
     description: '在图中内联一个 Ratio 常量（0..1）。',

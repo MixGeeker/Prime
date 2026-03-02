@@ -24,8 +24,7 @@ function mapJob(row: JobEntity): JobRecord {
     messageId: row.messageId ?? null,
     correlationId: row.correlationId ?? null,
     definitionId: row.definitionId,
-    versionUsed: row.versionUsed,
-    definitionHash: row.definitionHash ?? null,
+    definitionHashUsed: row.definitionHashUsed,
     inputsHash: row.inputsHash ?? null,
     outputsHash: row.outputsHash ?? null,
     status: row.status as JobRecord['status'],
@@ -61,7 +60,7 @@ export class TypeOrmJobRepository implements JobRepositoryPort {
           message_id,
           correlation_id,
           definition_id,
-          version_used,
+          definition_hash_used,
           status
         )
         VALUES ($1, $2, $3, $4, $5, $6, 'requested')
@@ -74,7 +73,7 @@ export class TypeOrmJobRepository implements JobRepositoryPort {
         params.messageId,
         params.correlationId,
         params.definitionId,
-        params.versionUsed,
+        params.definitionHashUsed,
       ],
     );
 
@@ -106,7 +105,6 @@ export class TypeOrmJobRepository implements JobRepositoryPort {
 
   async markSucceeded(params: {
     jobId: string;
-    definitionHash: string;
     inputsHash: string;
     outputsHash: string;
     outputs: Record<string, unknown>;
@@ -118,20 +116,18 @@ export class TypeOrmJobRepository implements JobRepositoryPort {
         UPDATE jobs
         SET
           status = 'succeeded',
-          definition_hash = $2,
-          inputs_hash = $3,
-          outputs_hash = $4,
-          computed_at = $5,
+          inputs_hash = $2,
+          outputs_hash = $3,
+          computed_at = $4,
           failed_at = NULL,
-          inputs_snapshot_json = $6,
-          outputs_json = $7,
+          inputs_snapshot_json = $5,
+          outputs_json = $6,
           error_code = NULL,
           error_message = NULL
         WHERE job_id = $1
       `,
       [
         params.jobId,
-        params.definitionHash,
         params.inputsHash,
         params.outputsHash,
         params.computedAt,
@@ -143,7 +139,6 @@ export class TypeOrmJobRepository implements JobRepositoryPort {
 
   async markFailed(params: {
     jobId: string;
-    definitionHash: string | null;
     inputsHash: string | null;
     errorCode: string;
     errorMessage: string;
@@ -154,19 +149,17 @@ export class TypeOrmJobRepository implements JobRepositoryPort {
         UPDATE jobs
         SET
           status = 'failed',
-          definition_hash = $2,
-          inputs_hash = $3,
+          inputs_hash = $2,
           outputs_hash = NULL,
           outputs_json = NULL,
           computed_at = NULL,
-          failed_at = $6,
-          error_code = $4,
-          error_message = $5
+          failed_at = $5,
+          error_code = $3,
+          error_message = $4
         WHERE job_id = $1
       `,
       [
         params.jobId,
-        params.definitionHash,
         params.inputsHash,
         params.errorCode,
         params.errorMessage,
