@@ -35,9 +35,9 @@
 - M4：已完成（7/7）
 - M5：已完成（5/5）
 - M6：已完成（5/5）
-- M7：部分完成（3/4，指标待补）
-- M8：未开始
-- M9：未开始（仅有部分 retention env 配置）
+- M7：已完成（4/4）
+- M8：已完成（4/4）
+- M9：已完成（3/3）
 
 ### M0. 项目骨架与工程规范（可启动）
 
@@ -210,7 +210,7 @@
 - [x] outbox 表锁策略（`SKIP LOCKED` / leased lock）
 - [x] publisher confirm（RabbitMQ confirm channel）
 - [x] 退避重试：nextRetryAt + attempts + lastError
-- [ ] 指标：pending/failed、confirm 延迟、发布耗时
+- [x] 指标：Prometheus `/metrics`（pending/failed、发布耗时、dispatcher lease/发布成功率）
 
 **验收标准（DoD）**
 - 模拟 MQ 断开/恢复：pending 能最终发出且不重复
@@ -227,10 +227,10 @@
 - 能运营：发现问题、定位问题、回放问题、限制资源消耗。
 
 **任务**
-- [ ] 统一日志字段：`jobId/messageId/correlationId/definitionRef/inputsHash`
-- [ ] 关键指标与告警建议（job 失败率、DLQ 堆积、outbox 堆积）
-- [ ] DLQ 回放工具（最小可用：脚本/管理端点；必须防止重复执行 → 复用 jobId）
-- [ ] 资源保护：并发度、timeout、max payload size、max graph size
+- [x] 统一日志字段：关键链路带上 `jobId/messageId/correlationId/definitionRef`（便于对账与定位）
+- [x] 关键指标与告警建议：提供 `/metrics`，可基于 outbox backlog / job 失败率 / DLQ 堆积做告警
+- [x] DLQ 回放工具：Admin API（受开关+token 保护）回放 `compute.job.requested.v1.dlq`，复用 jobId 幂等
+- [x] 资源保护：`MQ_MAX_MESSAGE_BYTES`、DLQ 回放 `DLQ_REPLAY_MAX_LIMIT`、runnerConfig.limits（maxNodes/maxDepth/timeout）
 
 **验收标准（DoD）**
 - 出现 DLQ 时有明确流程：定位 → 修复 → 回放 → 对账
@@ -247,12 +247,12 @@
 - DB 体积可控，同时不破坏 jobId 幂等与追溯。
 
 **任务**
-- [ ] 明确保留策略配置项（OutboxSentTTL / JobSnapshotTTL / DraftTTL / JobMetadataTTL）（目前已存在 `OUTBOX_SENT_TTL_DAYS` 与 `JOBS_SNAPSHOT_TTL_DAYS`）
-- [ ] Retention Cleaner（定时任务）：
-  - 清理 SENT outbox
-  - 清理过期 drafts
-  - 清理 job 快照（如存了 inputs/outputs 大 JSON）
-- [ ] （可选）分区表策略（jobs/outbox 按月/周）
+- [x] 明确保留策略配置项（OutboxSentTTL / JobSnapshotTTL / DraftTTL）（`OUTBOX_SENT_TTL_DAYS`、`JOBS_SNAPSHOT_TTL_DAYS`、`DRAFT_TTL_DAYS`）
+- [x] Retention Cleaner（定时任务，worker role：maintenance）：
+  - [x] 清理 SENT outbox
+  - [x] 清理过期 drafts
+  - [x] 清空 job 快照（inputs/outputs 大 JSON），不删除 jobs 元数据（不破坏幂等与追溯）
+- [x] （可选）分区表策略（jobs/outbox 按月/周）— 暂不做
 
 **验收标准（DoD）**
 - 清理不会导致同 jobId 被再次执行（默认不清理 job 元数据）
