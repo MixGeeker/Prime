@@ -33,7 +33,7 @@
 - M2：已完成（3/3）
 - M3：已完成（6/6）
 - M4：已完成（7/7）
-- M5：已完成（4/4）
+- M5：已完成（5/5）
 - M6：已完成（5/5）
 - M7：部分完成（3/4，指标待补）
 - M8：未开始
@@ -163,6 +163,7 @@
   - [x] `core.var.*@1`、`core.const.*@1`（按 valueType 拆分）
   - [x] 数值：`math.add/sub/mul/div@1`
   - [x] 逻辑/比较/if/round（已补齐：`logic.*`、`compare.decimal.*`、`core.if.decimal`、`math.round`）
+- [x] 节点实现模块化：每个 nodeType 一个文件；按分类目录组织（`backend/src/application/nodes/**`）；Runner service 仅负责编排
 - [x] 执行限制：`runnerConfig.limits`（maxNodes/maxDepth/timeout）
 - [x] 失败分类：确定性错误 vs 超时/资源错误（映射到 `job.failed.error.code` 与 `retryable`）
 
