@@ -9,18 +9,18 @@
 - 当前假设：单租户（不含 `tenantId`）。
 - 事件系统：默认 RabbitMQ（但内部通过 `MessageBusPort` 抽象，方便未来替换）。
 - 幂等键：以 `jobId` 为准（必须写死）。
-- `contentType=graph_json`（MVP 先落地 graphJson）。
+- `contentType=graph_json`（历史命名；`content` 实际为 BlueprintGraph，见 `GRAPH_SCHEMA.md`）。
 
 ## 1. 参考文档（“真规格”）
 
 实现时以这些文档为准（优先级从上到下）：
-1. `compute-engine/COMPUTE_ENGINE_DESIGN.md`（总体边界、Outbox/Inbox、失败策略）
-2. `compute-engine/API_DESIGN.md`（HTTP Admin API + MQ 契约 + 错误码）
-3. `compute-engine/GRAPH_SCHEMA.md`（graphJson 结构与 validate 要求；`runnerConfig` 归属）
-4. `compute-engine/HASHING_SPEC.md`（`definitionHash/inputsHash/outputsHash` 计算规则）
-5. `compute-engine/VALUE_TYPES.md`（类型系统与 canonicalize 规则）
-6. `compute-engine/BACKEND_GUIDE.md`（DDD+六边形、数据模型、运维与清理策略）
-7. `compute-engine/PROVIDER_GUIDE.md` / `compute-engine/EDITOR_GUIDE.md`（对外接入约束，供联调）
+1. `COMPUTE_ENGINE_DESIGN.md`（总体边界、Outbox/Inbox、失败策略）
+2. `API_DESIGN.md`（HTTP Admin API + MQ 契约 + 错误码）
+3. `GRAPH_SCHEMA.md`（BlueprintGraph 结构与 validate 要求；`runnerConfig` 归属）
+4. `HASHING_SPEC.md`（`definitionHash/inputsHash/outputsHash` 计算规则）
+5. `VALUE_TYPES.md`（类型系统与 canonicalize 规则）
+6. `BACKEND_GUIDE.md`（DDD+六边形、数据模型、运维与清理策略）
+7. `PROVIDER_GUIDE.md` / `EDITOR_GUIDE.md`（对外接入约束，供联调）
 
 ## 2. 里程碑（MVP → 可运营）
 
@@ -56,7 +56,7 @@
 - 可本地启动，能连接空 DB（或跳过 DB）并通过健康检查
 
 **参考**
-- `compute-engine/BACKEND_GUIDE.md`
+- `BACKEND_GUIDE.md`
 
 ---
 
@@ -76,15 +76,15 @@
 - `jobId` 重复投递不会重复执行（基于 `jobs.job_id` 唯一约束 + request_hash）
 
 **参考**
-- `compute-engine/BACKEND_GUIDE.md`
-- `compute-engine/API_DESIGN.md`（幂等与重复投递）
+- `BACKEND_GUIDE.md`
+- `API_DESIGN.md`（幂等与重复投递）
 
 ---
 
 ### M2. Graph validate（静态校验）与 Node Catalog 机制
 
 **目标**
-- 能对 graphJson 做结构/拓扑/类型的最小静态校验；并具备 Node Catalog（节点白名单）。
+- 能对 BlueprintGraph 做结构/拓扑/类型的最小静态校验；并具备 Node Catalog（节点白名单）。
 
 **任务**
 - [x] 实现 Graph schema 校验（结构字段、唯一性、DAG、端口合法性、类型兼容）
@@ -96,9 +96,9 @@
 - 不在 catalog 的 `nodeType` 必须被拒绝发布/执行
 
 **参考**
-- `compute-engine/GRAPH_SCHEMA.md`
-- `compute-engine/API_DESIGN.md`（Node Catalog、Validate API）
-- `compute-engine/VALUE_TYPES.md`
+- `GRAPH_SCHEMA.md`
+- `API_DESIGN.md`（Node Catalog、Validate API）
+- `VALUE_TYPES.md`
 
 ---
 
@@ -123,9 +123,9 @@
 - hash 计算有测试向量，未来换语言可对账
 
 **参考**
-- `compute-engine/HASHING_SPEC.md`
-- `compute-engine/VALUE_TYPES.md`
-- `compute-engine/GRAPH_SCHEMA.md`
+- `HASHING_SPEC.md`
+- `VALUE_TYPES.md`
+- `GRAPH_SCHEMA.md`
 
 ---
 
@@ -148,8 +148,8 @@
 - publish 后版本不可变（禁止覆盖更新）
 
 **参考**
-- `compute-engine/API_DESIGN.md`
-- `compute-engine/COMPUTE_ENGINE_DESIGN.md`
+- `API_DESIGN.md`
+- `COMPUTE_ENGINE_DESIGN.md`
 
 ---
 
@@ -174,9 +174,9 @@
 - Runner 不允许任何 IO（DB/HTTP/MQ/系统时间）
 
 **参考**
-- `compute-engine/COMPUTE_ENGINE_DESIGN.md`（Runner 约束）
-- `compute-engine/VALUE_TYPES.md`
-- `compute-engine/API_DESIGN.md`（错误码）
+- `COMPUTE_ENGINE_DESIGN.md`（Runner 约束）
+- `VALUE_TYPES.md`
+- `API_DESIGN.md`（错误码）
 
 ---
 
@@ -197,9 +197,9 @@
 - 宕机/重启不会丢结果事件（依赖 outbox）
 
 **参考**
-- `compute-engine/API_DESIGN.md`（MQ 契约、幂等、错误码）
-- `compute-engine/COMPUTE_ENGINE_DESIGN.md`（失败策略、Outbox/Inbox）
-- `compute-engine/BACKEND_GUIDE.md`（ack/nack 语义）
+- `API_DESIGN.md`（MQ 契约、幂等、错误码）
+- `COMPUTE_ENGINE_DESIGN.md`（失败策略、Outbox/Inbox）
+- `BACKEND_GUIDE.md`（ack/nack 语义）
 
 ---
 
@@ -218,8 +218,8 @@
 - 模拟 MQ 断开/恢复：pending 能最终发出且不重复
 
 **参考**
-- `compute-engine/COMPUTE_ENGINE_DESIGN.md`
-- `compute-engine/BACKEND_GUIDE.md`
+- `COMPUTE_ENGINE_DESIGN.md`
+- `BACKEND_GUIDE.md`
 
 ---
 
@@ -238,8 +238,8 @@
 - 出现 DLQ 时有明确流程：定位 → 修复 → 回放 → 对账
 
 **参考**
-- `compute-engine/COMPUTE_ENGINE_DESIGN.md`
-- `compute-engine/BACKEND_GUIDE.md`
+- `COMPUTE_ENGINE_DESIGN.md`
+- `BACKEND_GUIDE.md`
 
 ---
 
@@ -260,14 +260,14 @@
 - 清理不会导致同 jobId 被再次执行（默认不清理 job 元数据）
 
 **参考**
-- `compute-engine/BACKEND_GUIDE.md`（第 7 节 retention）
+- `BACKEND_GUIDE.md`（第 7 节 retention）
 
 ---
 
 ### M10. 蓝图控制流（Blueprint）重构（去版本号）
 
 **目标**
-- 从“DAG 数据流 graphJson”升级为“真正控制流蓝图”（exec 连线、if/loop/break、locals 状态、子蓝图调用）。
+- 从“仅 value edges 的 DAG 数据流图（历史称 graphJson）”升级为“真正控制流蓝图”（exec 连线、if/loop/break、locals 状态、子蓝图调用）。
 - 对外契约彻底去掉数字版本：以 `definitionHash` 作为不可变发布物标识。
 - 同时保持 Runner 的确定性（纯函数）与可对账能力（hash 可重放）。
 
@@ -288,9 +288,9 @@
 - 子蓝图调用（A 调 B）可运行，且发布后引用冻结为 `definitionHash`。
 
 **参考**
-- `compute-engine/API_DESIGN.md`
-- `compute-engine/GRAPH_SCHEMA.md`
-- `compute-engine/COMPUTE_ENGINE_DESIGN.md`
+- `API_DESIGN.md`
+- `GRAPH_SCHEMA.md`
+- `COMPUTE_ENGINE_DESIGN.md`
 
 ---
 
@@ -308,9 +308,9 @@
   - 若存在子蓝图调用：publish 时应冻结为 `definitionHash`（避免运行期“latest 漂移”）
 
 参考：
-- `compute-engine/PROVIDER_GUIDE.md`
-- `compute-engine/EDITOR_GUIDE.md`
-- `compute-engine/API_DESIGN.md`
+- `PROVIDER_GUIDE.md`
+- `EDITOR_GUIDE.md`
+- `API_DESIGN.md`
 
 ## 4. 交付物清单（最终“可以上线”）
 

@@ -1,6 +1,6 @@
 # Compute Engine Backend
 
-Milestones: `compute-engine/BACKEND_EXECUTION.md`
+Milestones: `../BACKEND_EXECUTION.md`
 
 ## Local dev
 

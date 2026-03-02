@@ -28,7 +28,7 @@ Editor 通过 Admin API：
 - 查看 release 列表与详情（diff/回滚/审计）
 
 编辑器侧需要特别注意：
-- `content` 只承载 graphJson（见 `GRAPH_SCHEMA.md`），**不包含** `runnerConfig`；`runnerConfig` 通过 Admin API 的独立字段提交。
+- `content` 只承载 BlueprintGraph（见 `GRAPH_SCHEMA.md`），**不包含** `runnerConfig`；`runnerConfig` 通过 Admin API 的独立字段提交。
 - 可把 UI 布局/分组/说明放入 `content.metadata`；引擎执行时忽略，且不参与 `definitionHash`（见 `HASHING_SPEC.md`）。
 
 ---

@@ -1,6 +1,6 @@
 # Compute Engine 后端文档（实现与运维约定）
 
-> 项目执行里程碑与任务拆解见：`compute-engine/BACKEND_EXECUTION.md`。
+> 项目执行里程碑与任务拆解见：`BACKEND_EXECUTION.md`。
 
 ## 1. 技术栈（建议）
 - 语言：TypeScript
