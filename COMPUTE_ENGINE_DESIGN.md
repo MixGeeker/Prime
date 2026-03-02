@@ -46,7 +46,7 @@
 
 ### 调用方（任意业务服务/适配器）
 - 决定用哪个 Definition Release（显式传 `definitionId+definitionHash`；或上层自行做“策略/配置”）。
-- 通过 Inputs Provider 组装输入 `inputs`（globals/facts/params）并发送 `compute.job.requested.v1`。
+- 通过 Inputs Provider 组装输入 `inputs`（`inputs.globals` + `inputs.params`；允许携带多余字段但引擎默认忽略）并发送 `compute.job.requested.v1`。
 - 消费结果事件，更新自己的读模型/缓存/报表等（需要的话可转发为业务事件）。
 
 ### Compute Inputs Provider（由集成方实现）
@@ -56,9 +56,11 @@
 
 Inputs Provider 典型职责：
 - **聚合 facts**：从货币模块/公司模块/库存模块等拉取需要的事实数据（可以是 DB 直读、HTTP/gRPC、或订阅事件构建本地缓存）。
-- **统一命名空间**：例如约定 `inputs.globals.*` 存放全局变量，`inputs.params.*` 存放本地参数，`inputs.facts.*` 存放对象事实。
+- **对齐引擎输入契约**：把“会影响计算结果”的字段写入 `inputs.globals` 与 `inputs.params`（对应 BlueprintGraph 的 `globals/entrypoints[key].params` 声明）。
+  - 允许携带多余字段（如 `inputs._meta/inputs.facts/inputs.resolved`），但引擎默认不会读取，也不会把未声明字段纳入 `inputsHash`。
 - **解析与规范化**：Decimal（字符串）规范化（必要时包含 Ratio/DateTime），避免调用方各自实现导致口径漂移；币种/方向等领域语义由集成方自行管理。
-- **可追溯**：把关键来源信息（如汇率时间点、rateId、公司配置版本等）写入 `inputs._meta`（或其他约定路径），使其进入 `inputsHash`。
+- **可追溯**：把关键来源信息（如汇率时间点、rateId、公司配置 revision 等）作为声明过的 `globals/params` 注入（可用一个 `Json` 字段聚合，例如 `globals.meta`），确保进入 `inputsHash`。
+  - `inputs._meta` 可以保留为审计/排障字段，但默认不进入 `inputsHash`。
 
 实现形态建议（MVP 选最轻的）：
 - **共享 SDK / NestJS Module**：业务模块直接调用一个 Provider 接口，由它负责拼装 `inputs` 并发布 MQ job（推荐起步）。
@@ -184,14 +186,14 @@ Inputs Provider 典型职责：
 
 推荐的注入顺序（以“调用方注入”为主）：
 1. **Gather Facts**：Inputs Provider 从各业务模块拉取/读取所需 facts（如汇率、公司配置、对象事实等）。
-2. **Build Inputs**：按约定命名空间组装 `inputs`（建议：`inputs.globals.*`、`inputs.params.*`、`inputs.facts.*`）。
-3. **Resolvers（可选）**：如必须走 HTTP/外部 API，Inputs Provider 在发送 job 前完成，并把结果写入约定路径（如 `inputs.resolved.<resolverId>`）。
-4. **Meta（强烈建议）**：把关键来源信息写入 `inputs._meta`（例如 `fxRateAsOf`、`fxRateId`、companyConfigId 等），使其进入 `inputsHash`。
+2. **Build Inputs**：构造 job payload 的 `inputs.globals` 与 `inputs.params`（允许携带额外字段，但引擎默认忽略未声明字段）。
+3. **Resolvers（可选）**：如必须走 HTTP/外部 API，Inputs Provider 在发送 job 前完成，并把会影响计算的结果写入声明字段（`inputs.globals/inputs.params`；可用 `Json` 聚合）。
+4. **Meta（强烈建议）**：把关键来源信息也写入声明字段（例如 `globals.meta: Json` 或拆成多个强类型字段），确保进入 `inputsHash`；`inputs._meta` 可作为审计字段保留。
 5. **Compute Engine 侧 Defaults + Canonicalize + Hash**：引擎按 `globals + entrypoint.params` 应用默认值生成 inputsSnapshot，再对其做规范化（Decimal/Ratio/DateTime 等）并计算 `inputsHash`，然后执行 Runner。
 
 关键约束：
 - **Runner 只读 `canonicalizedInputs`**，不允许访问进程环境、当前时间、外部服务。
-- **任何可能影响结果的值**（包括 HTTP resolver 输出与 `inputs._meta` 中的来源信息）必须进入 `inputsHash`，并可在 Job 中回放。
+- **任何可能影响结果的值**必须通过声明的 `globals/params` 注入，从而进入 `inputsHash` 并可在 Job 中回放；未声明字段允许存在但默认不可读、也不进入 `inputsHash`。
 
 ### 全局变量（来自业务模块的 Facts）怎么让所有图访问
 先澄清：汇率、公司名称/配置等属于业务模块的数据；Compute Engine 不应该把自己变成这些数据的“权威来源”。你想要“所有图都能访问”，本质是需要一个**统一的注入入口与命名空间**，而不是让引擎在运行时到处拉取。
@@ -225,7 +227,7 @@ MVP 约束建议：
 ### Runner 约束（MVP）
 - 纯函数：不得访问 DB/HTTP；所有输入从 `canonicalizedInputs` 注入。
 - 节点白名单（MVP，建议分组）：
-  - 基础：Const、Variable
+  - 基础：Const、Inputs（globals/params）、Flow、Locals（get/set）
   - 数值：Add/Sub/Mul/Div、Min/Max、Clamp、Abs
   - 逻辑：Compare、If、And/Or/Not
   - 舍入：Round（建议支持 mode/scale，且计入 `definitionHash` 或 `inputsHash`）
@@ -319,6 +321,6 @@ MVP 约束建议：
 1. Runner Core + Node Catalog（白名单节点 + 类型/约束 + decimal 精度与舍入）。
 2. Compute Engine 服务骨架（DB：Definition draft/publish → Release（definitionHash））。
 3. RabbitMQ Job 链路（consumer + publisher confirm + Outbox/Inbox + `job.succeeded/failed`）。
-4. Inputs Provider 规范与参考实现（命名空间 + canonicalize 规则 + `inputs._meta` 约定）。
+4. Inputs Provider 规范与参考实现（`inputs.globals/inputs.params` 约定 + canonicalize 规则 + 多余字段策略）。
 5. Editor 后端标准（Definition Admin API + validate + dry-run + OpenAPI/Schema），供集成方自定义 UI。
 6. 一个业务集成样板：Provider 注入 `inputs` → 发 `job.requested` → 收结果事件并落读模型（含 Inbox 幂等）。

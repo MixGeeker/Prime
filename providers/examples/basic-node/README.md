@@ -6,10 +6,10 @@
 
 ## inputs 约定（建议）
 
-- `inputs.globals.*`：全局变量（如公司配置、币种精度、汇率快照等）
-- `inputs.facts.*`：对象事实（如某个 product / customer 的事实数据）
-- `inputs.params.*`：调用方本次请求的本地参数
-- `inputs._meta.*`：来源与追溯信息（建议进入 `inputsHash`）
+- `inputs.globals`：全局输入（对应 BlueprintGraph 的 `globals[]` 声明）
+- `inputs.params`：入口参数（对应 BlueprintGraph 的 `entrypoints[key].params[]` 声明）
+- **允许多余字段**：`inputs` 可携带其它字段（例如 `inputs._meta/inputs.facts/inputs.resolved`），但 Compute Engine 默认不会读取，也不会把未声明字段纳入 `inputsHash`。
+  - 若希望某些元信息进入 `inputsHash`：应把它们声明为 `globals/params`（可用 `Json` 聚合字段，例如 `globals.meta`）。
 
 ## Job Requested（概念示意）
 
@@ -17,12 +17,15 @@
 {
   "schemaVersion": 1,
   "jobId": "01J...ULID/UUID",
-  "definitionRef": { "definitionId": "pricing.retail", "version": 1 },
+  "definitionRef": {
+    "definitionId": "pricing.retail",
+    "definitionHash": "<definitionHash>"
+  },
+  "entrypointKey": "main",
   "inputs": {
-    "globals": { "company": { "id": "c1" } },
-    "facts": { "product": { "id": "p1" } },
+    "globals": { "companyId": "c1", "meta": { "fxRateAsOf": "2026-03-02T00:00:00Z" } },
     "params": { "quantity": "2" },
-    "_meta": { "fxRateAsOf": "2026-03-02T00:00:00Z" }
+    "_meta": { "debug": "allowed but ignored by default" }
   }
 }
 ```

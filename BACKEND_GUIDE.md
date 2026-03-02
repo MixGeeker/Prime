@@ -57,7 +57,8 @@ src/
 ```
 
 ### 2.3 关键 Ports（示例）
-- `DefinitionRepositoryPort`：读写 draft / versions。
+- `DefinitionDraftRepositoryPort`：读写 draft（用于编辑与发布前校验/预览）。
+- `DefinitionReleaseRepositoryPort`：读写 releases（append-only，以 `definitionHash` 标识不可变发布物）。
 - `JobRepositoryPort`：落库 job（**建议作为 MQ 执行链路的必选项**，用于 `jobId` 幂等与回放）。
 - `InboxRepositoryPort`：可选（用于去重“消息投递”，但 `compute.job.requested.v1` 推荐直接以 `jobs.job_id` 唯一约束实现幂等）。
 - `OutboxRepositoryPort`：写入/拉取/锁定 outbox 记录。
