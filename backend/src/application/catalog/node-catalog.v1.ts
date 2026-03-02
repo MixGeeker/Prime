@@ -297,5 +297,161 @@ export const NODE_CATALOG_V1: NodeCatalog = {
       ],
       outputs: [{ name: 'value', valueType: 'Decimal' }],
     },
+    {
+      nodeType: 'math.round',
+      nodeVersion: 1,
+      title: '取整/舍入',
+      category: 'math',
+      description: 'Decimal 舍入：round(value, scale, mode)',
+      inputs: [{ name: 'value', valueType: 'Decimal' }],
+      outputs: [{ name: 'value', valueType: 'Decimal' }],
+      paramsSchema: {
+        $schema: 'http://json-schema.org/draft-07/schema#',
+        type: 'object',
+        additionalProperties: false,
+        required: ['scale', 'mode'],
+        properties: {
+          scale: { type: 'integer', minimum: 0 },
+          mode: {
+            type: 'string',
+            enum: [
+              'UP',
+              'DOWN',
+              'CEIL',
+              'FLOOR',
+              'HALF_UP',
+              'HALF_DOWN',
+              'HALF_EVEN',
+              'HALF_CEIL',
+              'HALF_FLOOR',
+            ],
+          },
+        },
+      },
+    },
+
+    // -----------------------------
+    // logic.*：布尔逻辑
+    // -----------------------------
+    {
+      nodeType: 'logic.and',
+      nodeVersion: 1,
+      title: '与',
+      category: 'logic',
+      description: 'Boolean AND：a && b',
+      inputs: [
+        { name: 'a', valueType: 'Boolean' },
+        { name: 'b', valueType: 'Boolean' },
+      ],
+      outputs: [{ name: 'value', valueType: 'Boolean' }],
+    },
+    {
+      nodeType: 'logic.or',
+      nodeVersion: 1,
+      title: '或',
+      category: 'logic',
+      description: 'Boolean OR：a || b',
+      inputs: [
+        { name: 'a', valueType: 'Boolean' },
+        { name: 'b', valueType: 'Boolean' },
+      ],
+      outputs: [{ name: 'value', valueType: 'Boolean' }],
+    },
+    {
+      nodeType: 'logic.not',
+      nodeVersion: 1,
+      title: '非',
+      category: 'logic',
+      description: 'Boolean NOT：!value',
+      inputs: [{ name: 'value', valueType: 'Boolean' }],
+      outputs: [{ name: 'value', valueType: 'Boolean' }],
+    },
+
+    // -----------------------------
+    // compare.*：数值比较（Decimal）
+    // -----------------------------
+    {
+      nodeType: 'compare.decimal.eq',
+      nodeVersion: 1,
+      title: '等于（Decimal）',
+      category: 'compare',
+      inputs: [
+        { name: 'a', valueType: 'Decimal' },
+        { name: 'b', valueType: 'Decimal' },
+      ],
+      outputs: [{ name: 'value', valueType: 'Boolean' }],
+    },
+    {
+      nodeType: 'compare.decimal.ne',
+      nodeVersion: 1,
+      title: '不等于（Decimal）',
+      category: 'compare',
+      inputs: [
+        { name: 'a', valueType: 'Decimal' },
+        { name: 'b', valueType: 'Decimal' },
+      ],
+      outputs: [{ name: 'value', valueType: 'Boolean' }],
+    },
+    {
+      nodeType: 'compare.decimal.gt',
+      nodeVersion: 1,
+      title: '大于（Decimal）',
+      category: 'compare',
+      inputs: [
+        { name: 'a', valueType: 'Decimal' },
+        { name: 'b', valueType: 'Decimal' },
+      ],
+      outputs: [{ name: 'value', valueType: 'Boolean' }],
+    },
+    {
+      nodeType: 'compare.decimal.gte',
+      nodeVersion: 1,
+      title: '大于等于（Decimal）',
+      category: 'compare',
+      inputs: [
+        { name: 'a', valueType: 'Decimal' },
+        { name: 'b', valueType: 'Decimal' },
+      ],
+      outputs: [{ name: 'value', valueType: 'Boolean' }],
+    },
+    {
+      nodeType: 'compare.decimal.lt',
+      nodeVersion: 1,
+      title: '小于（Decimal）',
+      category: 'compare',
+      inputs: [
+        { name: 'a', valueType: 'Decimal' },
+        { name: 'b', valueType: 'Decimal' },
+      ],
+      outputs: [{ name: 'value', valueType: 'Boolean' }],
+    },
+    {
+      nodeType: 'compare.decimal.lte',
+      nodeVersion: 1,
+      title: '小于等于（Decimal）',
+      category: 'compare',
+      inputs: [
+        { name: 'a', valueType: 'Decimal' },
+        { name: 'b', valueType: 'Decimal' },
+      ],
+      outputs: [{ name: 'value', valueType: 'Boolean' }],
+    },
+
+    // -----------------------------
+    // core.if.*：条件选择（按 valueType 拆分，便于静态校验）
+    // -----------------------------
+    {
+      nodeType: 'core.if.decimal',
+      nodeVersion: 1,
+      title: '条件（Decimal）',
+      category: 'core',
+      description: 'cond ? then : else',
+      inputs: [
+        { name: 'cond', valueType: 'Boolean' },
+        { name: 'then', valueType: 'Decimal' },
+        { name: 'else', valueType: 'Decimal' },
+      ],
+      outputs: [{ name: 'value', valueType: 'Decimal' }],
+    },
   ],
 };

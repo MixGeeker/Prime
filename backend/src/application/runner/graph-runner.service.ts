@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import Decimal from 'decimal.js';
 import { NodeCatalogService } from '../catalog/node-catalog.service';
 import type { ValueType } from '../catalog/node-catalog.types';
 import type {
@@ -30,6 +31,7 @@ export class GraphRunnerService implements RunnerPort {
       params.options ?? {},
     );
     const limits = readRunnerLimits(effectiveRunnerConfig);
+    const DecimalCtor = buildDecimalCtor(effectiveRunnerConfig);
 
     if (graph.nodes.length > limits.maxNodes) {
       throw new RunnerExecutionError(
@@ -124,6 +126,7 @@ export class GraphRunnerService implements RunnerPort {
         node,
         inputValues,
         params.variableValues,
+        DecimalCtor,
       );
       nodeOutputs.set(node.id, currentOutputs);
 
@@ -168,6 +171,7 @@ export class GraphRunnerService implements RunnerPort {
           output.valueType,
           output.rounding.scale,
           output.rounding.mode,
+          DecimalCtor,
         );
       }
 
@@ -182,6 +186,7 @@ function evaluateNode(
   node: GraphNode,
   inputs: Record<string, unknown>,
   variableValues: Record<string, unknown>,
+  DecimalCtor: typeof Decimal,
 ): Record<string, unknown> {
   if (node.nodeType.startsWith('core.var.')) {
     const path = getString(node.params?.['path']);
@@ -223,34 +228,102 @@ function evaluateNode(
 
   switch (node.nodeType) {
     case 'math.add': {
-      const result =
-        toDecimalNumber(inputs['a'], `${node.id}.a`) +
-        toDecimalNumber(inputs['b'], `${node.id}.b`);
-      return { value: canonicalizeDecimalOutput(result, node.id) };
+      const result = toDecimal(inputs['a'], `${node.id}.a`, DecimalCtor).plus(
+        toDecimal(inputs['b'], `${node.id}.b`, DecimalCtor),
+      );
+      return {
+        value: canonicalizeDecimalOutput('Decimal', result, node.id),
+      };
     }
     case 'math.sub': {
-      const result =
-        toDecimalNumber(inputs['a'], `${node.id}.a`) -
-        toDecimalNumber(inputs['b'], `${node.id}.b`);
-      return { value: canonicalizeDecimalOutput(result, node.id) };
+      const result = toDecimal(inputs['a'], `${node.id}.a`, DecimalCtor).minus(
+        toDecimal(inputs['b'], `${node.id}.b`, DecimalCtor),
+      );
+      return {
+        value: canonicalizeDecimalOutput('Decimal', result, node.id),
+      };
     }
     case 'math.mul': {
-      const result =
-        toDecimalNumber(inputs['a'], `${node.id}.a`) *
-        toDecimalNumber(inputs['b'], `${node.id}.b`);
-      return { value: canonicalizeDecimalOutput(result, node.id) };
+      const result = toDecimal(inputs['a'], `${node.id}.a`, DecimalCtor).mul(
+        toDecimal(inputs['b'], `${node.id}.b`, DecimalCtor),
+      );
+      return {
+        value: canonicalizeDecimalOutput('Decimal', result, node.id),
+      };
     }
     case 'math.div': {
-      const left = toDecimalNumber(inputs['a'], `${node.id}.a`);
-      const right = toDecimalNumber(inputs['b'], `${node.id}.b`);
-      if (right === 0) {
+      const left = toDecimal(inputs['a'], `${node.id}.a`, DecimalCtor);
+      const right = toDecimal(inputs['b'], `${node.id}.b`, DecimalCtor);
+      if (right.isZero()) {
         throw new RunnerExecutionError(
           'RUNNER_DETERMINISTIC_ERROR',
           `division by zero at ${node.id}`,
         );
       }
-      const result = left / right;
-      return { value: canonicalizeDecimalOutput(result, node.id) };
+      const result = left.div(right);
+      return {
+        value: canonicalizeDecimalOutput('Decimal', result, node.id),
+      };
+    }
+    case 'math.round': {
+      const scale = getNonNegativeInt(node.params?.['scale']);
+      const mode = getRoundingMode(node.params?.['mode']);
+      const value = toDecimal(inputs['value'], `${node.id}.value`, DecimalCtor);
+      const rounded = value.toDecimalPlaces(scale, toDecimalRounding(mode));
+      return {
+        value: canonicalizeDecimalOutput('Decimal', rounded, node.id),
+      };
+    }
+    case 'logic.and': {
+      const a = toBoolean(inputs['a'], `${node.id}.a`);
+      const b = toBoolean(inputs['b'], `${node.id}.b`);
+      return { value: a && b };
+    }
+    case 'logic.or': {
+      const a = toBoolean(inputs['a'], `${node.id}.a`);
+      const b = toBoolean(inputs['b'], `${node.id}.b`);
+      return { value: a || b };
+    }
+    case 'logic.not': {
+      const value = toBoolean(inputs['value'], `${node.id}.value`);
+      return { value: !value };
+    }
+    case 'core.if.decimal': {
+      const cond = toBoolean(inputs['cond'], `${node.id}.cond`);
+      const chosen = cond ? inputs['then'] : inputs['else'];
+      return {
+        value: canonicalizeChosenValue('Decimal', chosen, node.id),
+      };
+    }
+    case 'compare.decimal.eq': {
+      const a = toDecimal(inputs['a'], `${node.id}.a`, DecimalCtor);
+      const b = toDecimal(inputs['b'], `${node.id}.b`, DecimalCtor);
+      return { value: a.equals(b) };
+    }
+    case 'compare.decimal.ne': {
+      const a = toDecimal(inputs['a'], `${node.id}.a`, DecimalCtor);
+      const b = toDecimal(inputs['b'], `${node.id}.b`, DecimalCtor);
+      return { value: !a.equals(b) };
+    }
+    case 'compare.decimal.gt': {
+      const a = toDecimal(inputs['a'], `${node.id}.a`, DecimalCtor);
+      const b = toDecimal(inputs['b'], `${node.id}.b`, DecimalCtor);
+      return { value: a.greaterThan(b) };
+    }
+    case 'compare.decimal.gte': {
+      const a = toDecimal(inputs['a'], `${node.id}.a`, DecimalCtor);
+      const b = toDecimal(inputs['b'], `${node.id}.b`, DecimalCtor);
+      return { value: a.greaterThanOrEqualTo(b) };
+    }
+    case 'compare.decimal.lt': {
+      const a = toDecimal(inputs['a'], `${node.id}.a`, DecimalCtor);
+      const b = toDecimal(inputs['b'], `${node.id}.b`, DecimalCtor);
+      return { value: a.lessThan(b) };
+    }
+    case 'compare.decimal.lte': {
+      const a = toDecimal(inputs['a'], `${node.id}.a`, DecimalCtor);
+      const b = toDecimal(inputs['b'], `${node.id}.b`, DecimalCtor);
+      return { value: a.lessThanOrEqualTo(b) };
     }
     default:
       throw new RunnerExecutionError(
@@ -260,14 +333,18 @@ function evaluateNode(
   }
 }
 
-function canonicalizeDecimalOutput(value: number, nodeId: string): string {
-  if (!Number.isFinite(value)) {
+function canonicalizeDecimalOutput(
+  valueType: ValueType,
+  value: Decimal,
+  nodeId: string,
+): string {
+  if (!value.isFinite()) {
     throw new RunnerExecutionError(
       'RUNNER_DETERMINISTIC_ERROR',
       `non-finite decimal result at ${nodeId}`,
     );
   }
-  const canonicalized = canonicalizeValueByType('Decimal', value);
+  const canonicalized = canonicalizeValueByType(valueType, value.toString());
   if (!canonicalized.ok) {
     throw new RunnerExecutionError(
       'RUNNER_DETERMINISTIC_ERROR',
@@ -277,21 +354,26 @@ function canonicalizeDecimalOutput(value: number, nodeId: string): string {
   return canonicalized.value as string;
 }
 
-function toDecimalNumber(value: unknown, label: string): number {
+function toDecimal(value: unknown, label: string, DecimalCtor: typeof Decimal) {
   if (typeof value !== 'string' && typeof value !== 'number') {
     throw new RunnerExecutionError(
       'RUNNER_DETERMINISTIC_ERROR',
       `decimal input must be string/number: ${label}`,
     );
   }
-  const converted = Number(value);
-  if (!Number.isFinite(converted)) {
+
+  try {
+    const converted = new DecimalCtor(value);
+    if (!converted.isFinite()) {
+      throw new Error('non-finite');
+    }
+    return converted;
+  } catch {
     throw new RunnerExecutionError(
       'RUNNER_DETERMINISTIC_ERROR',
-      `decimal input is not finite: ${label}`,
+      `invalid decimal input: ${label}`,
     );
   }
-  return converted;
 }
 
 function valueTypeFromCoreNodeType(nodeType: string): ValueType | null {
@@ -319,6 +401,7 @@ function applyOutputRounding(
   valueType: ValueType,
   scale: number,
   mode: RoundingMode,
+  DecimalCtor: typeof Decimal,
 ): unknown {
   if (valueType !== 'Decimal' && valueType !== 'Ratio') {
     throw new RunnerExecutionError(
@@ -327,9 +410,9 @@ function applyOutputRounding(
     );
   }
 
-  const numericValue = toDecimalNumber(value, 'output.rounding');
-  const rounded = roundWithMode(numericValue, scale, mode);
-  const canonicalized = canonicalizeValueByType(valueType, rounded);
+  const decimalValue = toDecimal(value, 'output.rounding', DecimalCtor);
+  const rounded = decimalValue.toDecimalPlaces(scale, toDecimalRounding(mode));
+  const canonicalized = canonicalizeValueByType(valueType, rounded.toString());
   if (!canonicalized.ok) {
     throw new RunnerExecutionError(
       'RUNNER_DETERMINISTIC_ERROR',
@@ -337,95 +420,6 @@ function applyOutputRounding(
     );
   }
   return canonicalized.value;
-}
-
-function roundWithMode(
-  value: number,
-  scale: number,
-  mode: RoundingMode,
-): number {
-  const factor = Math.pow(10, scale);
-  const scaled = value * factor;
-
-  switch (mode) {
-    case 'UP':
-      return (scaled >= 0 ? Math.ceil(scaled) : Math.floor(scaled)) / factor;
-    case 'DOWN':
-      return (scaled >= 0 ? Math.floor(scaled) : Math.ceil(scaled)) / factor;
-    case 'CEIL':
-      return Math.ceil(scaled) / factor;
-    case 'FLOOR':
-      return Math.floor(scaled) / factor;
-    case 'HALF_UP':
-      return roundHalfUp(scaled) / factor;
-    case 'HALF_DOWN':
-      return roundHalfDown(scaled) / factor;
-    case 'HALF_EVEN':
-      return roundHalfEven(scaled) / factor;
-    case 'HALF_CEIL':
-      return roundHalfCeil(scaled) / factor;
-    case 'HALF_FLOOR':
-      return roundHalfFloor(scaled) / factor;
-    default:
-      return roundHalfEven(scaled) / factor;
-  }
-}
-
-function roundHalfUp(value: number): number {
-  const sign = value >= 0 ? 1 : -1;
-  const abs = Math.abs(value);
-  return sign * Math.floor(abs + 0.5);
-}
-
-function roundHalfDown(value: number): number {
-  const sign = value >= 0 ? 1 : -1;
-  const abs = Math.abs(value);
-  const floorValue = Math.floor(abs);
-  const fraction = abs - floorValue;
-  const isTie = Math.abs(fraction - 0.5) < 1e-12;
-  if (isTie) {
-    return sign * floorValue;
-  }
-  return sign * Math.floor(abs + 0.5);
-}
-
-function roundHalfEven(value: number): number {
-  const sign = value >= 0 ? 1 : -1;
-  const abs = Math.abs(value);
-  const floorValue = Math.floor(abs);
-  const fraction = abs - floorValue;
-  const isTie = Math.abs(fraction - 0.5) < 1e-12;
-  if (!isTie) {
-    return sign * Math.floor(abs + 0.5);
-  }
-  if (floorValue % 2 === 0) {
-    return sign * floorValue;
-  }
-  return sign * (floorValue + 1);
-}
-
-function roundHalfCeil(value: number): number {
-  const rounded = roundHalfDown(value);
-  const abs = Math.abs(value);
-  const floorValue = Math.floor(abs);
-  const fraction = abs - floorValue;
-  const isTie = Math.abs(fraction - 0.5) < 1e-12;
-  if (!isTie) {
-    return rounded;
-  }
-  return Math.ceil(value);
-}
-
-function roundHalfFloor(value: number): number {
-  const rounded = roundHalfDown(value);
-  const abs = Math.abs(value);
-  const floorValue = Math.floor(abs);
-  const fraction = abs - floorValue;
-  const isTie = Math.abs(fraction - 0.5) < 1e-12;
-  if (!isTie) {
-    return rounded;
-  }
-  return Math.floor(value);
 }
 
 function ensureTimeout(startedAt: number, timeoutMs: number) {
@@ -560,4 +554,131 @@ function deepMerge(
 
 function getString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function toBoolean(value: unknown, label: string): boolean {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  throw new RunnerExecutionError(
+    'RUNNER_DETERMINISTIC_ERROR',
+    `boolean input must be boolean: ${label}`,
+  );
+}
+
+function getNonNegativeInt(value: unknown): number {
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0) {
+    return value;
+  }
+  throw new RunnerExecutionError(
+    'RUNNER_DETERMINISTIC_ERROR',
+    `expected a non-negative integer, got: ${String(value)}`,
+  );
+}
+
+function getRoundingMode(value: unknown): RoundingMode {
+  if (typeof value !== 'string') {
+    throw new RunnerExecutionError(
+      'RUNNER_DETERMINISTIC_ERROR',
+      `rounding mode must be a string, got: ${String(value)}`,
+    );
+  }
+  switch (value) {
+    case 'UP':
+    case 'DOWN':
+    case 'CEIL':
+    case 'FLOOR':
+    case 'HALF_UP':
+    case 'HALF_DOWN':
+    case 'HALF_EVEN':
+    case 'HALF_CEIL':
+    case 'HALF_FLOOR':
+      return value;
+    default:
+      throw new RunnerExecutionError(
+        'RUNNER_DETERMINISTIC_ERROR',
+        `unsupported rounding mode: ${value}`,
+      );
+  }
+}
+
+function toDecimalRounding(mode: RoundingMode): Decimal.Rounding {
+  switch (mode) {
+    case 'UP':
+      return Decimal.ROUND_UP;
+    case 'DOWN':
+      return Decimal.ROUND_DOWN;
+    case 'CEIL':
+      return Decimal.ROUND_CEIL;
+    case 'FLOOR':
+      return Decimal.ROUND_FLOOR;
+    case 'HALF_UP':
+      return Decimal.ROUND_HALF_UP;
+    case 'HALF_DOWN':
+      return Decimal.ROUND_HALF_DOWN;
+    case 'HALF_EVEN':
+      return Decimal.ROUND_HALF_EVEN;
+    case 'HALF_CEIL':
+      return Decimal.ROUND_HALF_CEIL;
+    case 'HALF_FLOOR':
+      return Decimal.ROUND_HALF_FLOOR;
+    default: {
+      const _exhaustive: never = mode;
+      throw new RunnerExecutionError(
+        'RUNNER_DETERMINISTIC_ERROR',
+        `unsupported rounding mode: ${String(_exhaustive)}`,
+      );
+    }
+  }
+}
+
+function buildDecimalCtor(config: Record<string, unknown>): typeof Decimal {
+  const decimalConfig = config['decimal'];
+  if (!isPlainObject(decimalConfig)) {
+    return Decimal.clone();
+  }
+
+  const options: { precision?: number; rounding?: Decimal.Rounding } = {};
+
+  if (Object.prototype.hasOwnProperty.call(decimalConfig, 'precision')) {
+    const precision = decimalConfig['precision'];
+    if (
+      typeof precision === 'number' &&
+      Number.isInteger(precision) &&
+      precision > 0
+    ) {
+      options.precision = precision;
+    } else if (precision !== undefined) {
+      throw new RunnerExecutionError(
+        'RUNNER_DETERMINISTIC_ERROR',
+        'decimal.precision must be a positive integer',
+      );
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(decimalConfig, 'roundingMode')) {
+    const roundingMode = decimalConfig['roundingMode'];
+    if (roundingMode === undefined) {
+      // noop
+    } else {
+      options.rounding = toDecimalRounding(getRoundingMode(roundingMode));
+    }
+  }
+
+  return Decimal.clone(options);
+}
+
+function canonicalizeChosenValue(
+  valueType: ValueType,
+  value: unknown,
+  nodeId: string,
+): unknown {
+  const canonicalized = canonicalizeValueByType(valueType, value);
+  if (!canonicalized.ok) {
+    throw new RunnerExecutionError(
+      'RUNNER_DETERMINISTIC_ERROR',
+      `invalid ${valueType} at ${nodeId}: ${canonicalized.message}`,
+    );
+  }
+  return canonicalized.value;
 }

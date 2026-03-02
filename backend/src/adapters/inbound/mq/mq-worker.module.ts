@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { ApplicationModule } from '../../../application/application.module';
+import { DbModule } from '../../outbound/db/db.module';
 import { MqWorkerService } from './mq-worker.service';
 
 /**
@@ -9,6 +11,7 @@ import { MqWorkerService } from './mq-worker.service';
  * - 事务内写 `jobs + outbox` 后再 ack（Outbox 模式）
  */
 @Module({
+  imports: [DbModule, ApplicationModule],
   providers: [MqWorkerService],
 })
 export class MqWorkerModule {}

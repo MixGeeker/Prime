@@ -52,4 +52,114 @@ export class TypeOrmOutboxRepository implements OutboxRepositoryPort {
     const saved = await this.manager.getRepository(OutboxEntity).save(row);
     return mapOutbox(saved);
   }
+
+  async leaseNextBatch(params: {
+    batchSize: number;
+    lockedBy: string;
+    now: Date;
+    staleLockedBefore: Date;
+    maxAttempts: number;
+  }): Promise<OutboxRecord[]> {
+    const rows: unknown = await this.manager.query(
+      `
+        WITH candidates AS (
+          SELECT id
+          FROM outbox
+          WHERE status IN ('pending', 'failed')
+            AND (next_retry_at IS NULL OR next_retry_at <= $1)
+            AND (locked_at IS NULL OR locked_at <= $2)
+            AND attempts < $5
+          ORDER BY created_at ASC
+          LIMIT $3
+          FOR UPDATE SKIP LOCKED
+        )
+        UPDATE outbox o
+        SET
+          locked_at = $1,
+          locked_by = $4,
+          updated_at = $1
+        FROM candidates c
+        WHERE o.id = c.id
+        RETURNING
+          o.id AS "id",
+          o.event_type AS "eventType",
+          o.routing_key AS "routingKey",
+          o.payload_json AS "payloadJson",
+          o.headers_json AS "headersJson",
+          o.status AS "status",
+          o.locked_at AS "lockedAt",
+          o.locked_by AS "lockedBy",
+          o.next_retry_at AS "nextRetryAt",
+          o.last_error AS "lastError",
+          o.attempts AS "attempts",
+          o.created_at AS "createdAt",
+          o.updated_at AS "updatedAt"
+      `,
+      [
+        params.now,
+        params.staleLockedBefore,
+        params.batchSize,
+        params.lockedBy,
+        params.maxAttempts,
+      ],
+    );
+
+    if (!Array.isArray(rows)) {
+      return [];
+    }
+
+    return rows.map((row) => {
+      const mapped = row as unknown as OutboxEntity;
+      return mapOutbox(mapped);
+    });
+  }
+
+  async markSent(params: { id: string; lockedBy: string; now: Date }) {
+    await this.manager.query(
+      `
+        UPDATE outbox
+        SET
+          status = 'sent',
+          locked_at = NULL,
+          locked_by = NULL,
+          next_retry_at = NULL,
+          last_error = NULL,
+          updated_at = $3
+        WHERE id = $1
+          AND locked_by = $2
+      `,
+      [params.id, params.lockedBy, params.now],
+    );
+  }
+
+  async markFailedAndScheduleRetry(params: {
+    id: string;
+    lockedBy: string;
+    now: Date;
+    error: string;
+    nextRetryAt: Date;
+  }) {
+    await this.manager.query(
+      `
+        UPDATE outbox
+        SET
+          status = 'failed',
+          locked_at = NULL,
+          locked_by = NULL,
+          last_error = $3,
+          attempts = attempts + 1,
+          next_retry_at = $4,
+          updated_at = $5
+        WHERE id = $1
+          AND locked_by = $2
+      `,
+      [
+        params.id,
+        params.lockedBy,
+        params.error,
+        params.nextRetryAt,
+        params.now,
+      ],
+    );
+  }
 }

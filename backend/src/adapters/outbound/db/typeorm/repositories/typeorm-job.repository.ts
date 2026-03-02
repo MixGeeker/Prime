@@ -92,4 +92,86 @@ export class TypeOrmJobRepository implements JobRepositoryPort {
     const inserted = isUnknownArray(insertedRows) && insertedRows.length > 0;
     return { kind: inserted ? 'inserted' : 'duplicate', job: existing };
   }
+
+  async markRunning(jobId: string): Promise<void> {
+    await this.manager.query(
+      `
+        UPDATE jobs
+        SET status = 'running'
+        WHERE job_id = $1
+      `,
+      [jobId],
+    );
+  }
+
+  async markSucceeded(params: {
+    jobId: string;
+    definitionHash: string;
+    inputsHash: string;
+    outputsHash: string;
+    outputs: Record<string, unknown>;
+    computedAt: Date;
+    inputsSnapshot?: Record<string, unknown> | null;
+  }): Promise<void> {
+    await this.manager.query(
+      `
+        UPDATE jobs
+        SET
+          status = 'succeeded',
+          definition_hash = $2,
+          inputs_hash = $3,
+          outputs_hash = $4,
+          computed_at = $5,
+          failed_at = NULL,
+          inputs_snapshot_json = $6,
+          outputs_json = $7,
+          error_code = NULL,
+          error_message = NULL
+        WHERE job_id = $1
+      `,
+      [
+        params.jobId,
+        params.definitionHash,
+        params.inputsHash,
+        params.outputsHash,
+        params.computedAt,
+        params.inputsSnapshot ?? null,
+        params.outputs,
+      ],
+    );
+  }
+
+  async markFailed(params: {
+    jobId: string;
+    definitionHash: string | null;
+    inputsHash: string | null;
+    errorCode: string;
+    errorMessage: string;
+    failedAt: Date;
+  }): Promise<void> {
+    await this.manager.query(
+      `
+        UPDATE jobs
+        SET
+          status = 'failed',
+          definition_hash = $2,
+          inputs_hash = $3,
+          outputs_hash = NULL,
+          outputs_json = NULL,
+          computed_at = NULL,
+          failed_at = $6,
+          error_code = $4,
+          error_message = $5
+        WHERE job_id = $1
+      `,
+      [
+        params.jobId,
+        params.definitionHash,
+        params.inputsHash,
+        params.errorCode,
+        params.errorMessage,
+        params.failedAt,
+      ],
+    );
+  }
 }

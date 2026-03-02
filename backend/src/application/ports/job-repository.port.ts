@@ -17,4 +17,22 @@ export type TryInsertJobResult =
 export interface JobRepositoryPort {
   getJob(jobId: string): Promise<JobRecord | null>;
   tryInsertRequested(params: NewJobRequested): Promise<TryInsertJobResult>;
+  markRunning(jobId: string): Promise<void>;
+  markSucceeded(params: {
+    jobId: string;
+    definitionHash: string;
+    inputsHash: string;
+    outputsHash: string;
+    outputs: Record<string, unknown>;
+    computedAt: Date;
+    inputsSnapshot?: Record<string, unknown> | null;
+  }): Promise<void>;
+  markFailed(params: {
+    jobId: string;
+    definitionHash: string | null;
+    inputsHash: string | null;
+    errorCode: string;
+    errorMessage: string;
+    failedAt: Date;
+  }): Promise<void>;
 }

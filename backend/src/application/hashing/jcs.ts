@@ -1,5 +1,9 @@
-import { stableJsonStringify } from '../../shared/stable-json-stringify';
+import canonicalize from 'canonicalize';
 
 export function jcsCanonicalize(value: unknown): string {
-  return stableJsonStringify(value);
+  const result = canonicalize(value);
+  if (result === undefined) {
+    throw new Error('Value is not JSON-serializable for JCS');
+  }
+  return result;
 }

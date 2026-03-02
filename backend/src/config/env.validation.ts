@@ -41,6 +41,71 @@ export class EnvVars {
   @IsString()
   RABBITMQ_URL?: string;
 
+  /**
+   * Worker 角色：
+   * - `consumer`：消费 `compute.job.requested.v1`（M6）
+   * - `dispatcher`：Outbox 发布（M7）
+   * - `consumer,dispatcher`：同进程同时启用（默认）
+   */
+  @IsOptional()
+  @IsString()
+  WORKER_ROLES: string = 'consumer,dispatcher';
+
+  /** RabbitMQ 命令 exchange（topic, durable） */
+  @IsOptional()
+  @IsString()
+  MQ_COMMANDS_EXCHANGE: string = 'compute.commands';
+
+  /** RabbitMQ 事件 exchange（topic, durable） */
+  @IsOptional()
+  @IsString()
+  MQ_EVENTS_EXCHANGE: string = 'compute.events';
+
+  /** RabbitMQ 死信 exchange（topic, durable） */
+  @IsOptional()
+  @IsString()
+  MQ_DLX_EXCHANGE: string = 'compute.dlx';
+
+  /** `compute.job.requested.v1` consumer queue 名称（durable） */
+  @IsOptional()
+  @IsString()
+  MQ_JOB_REQUESTED_QUEUE: string = 'compute.job.requested.v1';
+
+  /** consumer prefetch（每个 channel 的最大未确认消息数） */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  MQ_PREFETCH: number = 10;
+
+  /** Outbox dispatcher：每次抓取/租约的最大记录数 */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  OUTBOX_DISPATCH_BATCH_SIZE: number = 50;
+
+  /** Outbox dispatcher：轮询间隔（ms） */
+  @IsOptional()
+  @IsInt()
+  @Min(50)
+  @Max(60_000)
+  OUTBOX_DISPATCH_POLL_INTERVAL_MS: number = 500;
+
+  /** Outbox dispatcher：租约时长（ms），超过视为锁过期可被其他实例抢占 */
+  @IsOptional()
+  @IsInt()
+  @Min(1_000)
+  @Max(10 * 60_000)
+  OUTBOX_DISPATCH_LEASE_MS: number = 30_000;
+
+  /** Outbox dispatcher：最大重试次数（超过后不再自动重试） */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(10_000)
+  OUTBOX_DISPATCH_MAX_ATTEMPTS: number = 25;
+
   /** 应用日志级别（映射到 Nest logger levels） */
   @IsOptional()
   @IsIn(LOG_LEVELS)

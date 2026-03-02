@@ -17,7 +17,8 @@
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main.js",
     "start:worker": "ts-node -r tsconfig-paths/register src/worker.ts",
-    "start:worker:prod": "node dist/worker.js"
+    "start:worker:prod": "node dist/worker.js",
+    "test:hashing": "ts-node -r tsconfig-paths/register src/application/hashing/golden-cases.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -28,8 +29,11 @@
     "@nestjs/typeorm": "^11.0.0",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
+    "amqplib": "^0.10.9",
+    "canonicalize": "^2.1.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
+    "decimal.js": "^10.6.0",
     "dotenv": "^17.2.0",
     "pg": "^8.16.3",
     "reflect-metadata": "^0.2.2",
@@ -41,6 +45,7 @@
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.1",
+    "@types/amqplib": "^0.10.8",
     "@types/node": "^22.10.7",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",

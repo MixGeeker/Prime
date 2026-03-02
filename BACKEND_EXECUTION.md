@@ -31,11 +31,11 @@
 - M0：已完成（5/5）
 - M1：已完成（4/4）
 - M2：已完成（3/3）
-- M3：部分完成（4/6，JCS 与 golden cases 待补）
+- M3：已完成（6/6）
 - M4：已完成（7/7）
-- M5：部分完成（2/4，节点集合与失败映射待补）
-- M6：未开始
-- M7：未开始
+- M5：已完成（4/4）
+- M6：已完成（5/5）
+- M7：部分完成（3/4，指标待补）
 - M8：未开始
 - M9：未开始（仅有部分 retention env 配置）
 
@@ -108,11 +108,11 @@
 
 **任务**
 - [x] typed canonicalize（Decimal/Ratio/DateTime）
-- [ ] JCS（RFC 8785）序列化（目前为“稳定 stringify”占位，后续需替换为真正 JCS 实现）
+- [x] JCS（RFC 8785）序列化（已用 npm 包 `canonicalize` 落地）
 - [x] `definitionHash`：发布时计算；裁剪 `content.metadata/resolvers`；稳定排序（variables/nodes/edges/outputs）
 - [x] `inputsHash`：按 variables.path 全量覆盖；缺失时应用 default；并纳入 `job.options`
 - [x] `outputsHash`：只在成功时计算；失败不产生 outputsHash
-- [ ] golden cases：至少覆盖
+- [x] golden cases：至少覆盖（脚本：`backend` 下 `npm run test:hashing`）
   - 同语义不同顺序 → hash 相同（definitionHash）
   - default 生效/不生效 → inputsHash 不同
   - Decimal/Ratio 的规范化一致性
@@ -159,12 +159,12 @@
 
 **任务**
 - [x] RunnerPort（domain/application 只依赖 port）
-- [ ] 节点执行（按 Node Catalog 白名单），包含最小节点集合：
+- [x] 节点执行（按 Node Catalog 白名单），包含最小节点集合：
   - [x] `core.var.*@1`、`core.const.*@1`（按 valueType 拆分）
   - [x] 数值：`math.add/sub/mul/div@1`
-  - [ ] 逻辑/比较/if/round（待补齐）
+  - [x] 逻辑/比较/if/round（已补齐：`logic.*`、`compare.decimal.*`、`core.if.decimal`、`math.round`）
 - [x] 执行限制：`runnerConfig.limits`（maxNodes/maxDepth/timeout）
-- [ ] 失败分类：确定性错误 vs 超时/资源错误（映射到 `job.failed.error.code` 与 `retryable`）（M6 接入 MQ 后补齐）
+- [x] 失败分类：确定性错误 vs 超时/资源错误（映射到 `job.failed.error.code` 与 `retryable`）
 
 **验收标准（DoD）**
 - 同输入同输出（可用回归用例验证）
@@ -183,11 +183,11 @@
 - 消费 `compute.job.requested.v1` 并可靠发布结果事件，具备 at-least-once + jobId 幂等。
 
 **任务**
-- [ ] RabbitMQ consumer（routingKey：`compute.job.requested.v1`）
-- [ ] 消息解析与校验（无法解析 jobId → DLQ；可解析但非法 → 写 `job.failed(INVALID_MESSAGE)` 并 ack）
-- [ ] `jobId` 幂等处理（重复 payload 一致 → 直接 ack；不一致 → DLQ）
-- [ ] 执行流程：读 DefinitionVersion → validate inputs → defaults → canonicalize → inputsHash → runner → outputsHash
-- [ ] 事务内写 `jobs + outbox` 后 ack（ack 时机要严格）
+- [x] RabbitMQ consumer（routingKey：`compute.job.requested.v1`）
+- [x] 消息解析与校验（无法解析 `jobId` / `definitionRef` → DLQ；其余字段非法 → 写 `job.failed(INVALID_MESSAGE)` 并 ack）
+- [x] `jobId` 幂等处理（重复 payload 一致 → 直接 ack；不一致 → DLQ）
+- [x] 执行流程：读 DefinitionVersion → validate inputs → defaults → canonicalize → inputsHash → runner → outputsHash
+- [x] 事务内写 `jobs + outbox` 后 ack（ack 时机要严格）
 
 **验收标准（DoD）**
 - 重复投递不重复执行（且不会重复发结果）
@@ -206,9 +206,9 @@
 - outbox 能稳定把结果事件发布出去；失败可重试；可观测。
 
 **任务**
-- [ ] outbox 表锁策略（`SKIP LOCKED` / leased lock）
-- [ ] publisher confirm（RabbitMQ confirm channel）
-- [ ] 退避重试：nextRetryAt + attempts + lastError
+- [x] outbox 表锁策略（`SKIP LOCKED` / leased lock）
+- [x] publisher confirm（RabbitMQ confirm channel）
+- [x] 退避重试：nextRetryAt + attempts + lastError
 - [ ] 指标：pending/failed、confirm 延迟、发布耗时
 
 **验收标准（DoD）**

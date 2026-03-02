@@ -2,18 +2,18 @@ import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import type { ComputeJobRequestedV1 } from '../../domain/job/job-request';
 import { computeJobRequestHash } from '../../domain/job/request-hash';
+import { HashingService } from '../hashing/hashing.service';
+import { RUNNER_PORT, type RunnerPort } from '../ports/runner.port';
 import { UNIT_OF_WORK, type UnitOfWorkPort } from '../ports/unit-of-work.port';
+import { RunnerExecutionError } from '../runner/runner.error';
+import { GraphValidatorService } from '../validation/graph-validator.service';
+import type { GraphJsonV1 } from '../validation/graph-json.types';
+import { UseCaseError } from './use-case.error';
 
 /**
- * ExecuteJob 用例（M1 版本：先落幂等存根）。
- *
- * 目标：
- * - 基于 `jobId` 幂等：重复投递不重复执行
- * - 用 `requestHash` 检测“同 jobId 不同 payload”的冲突
- *
- * 说明：
- * - 真正的计算链路（读取 DefinitionVersion / inputs 校验与规范化 / runner / outbox 发布结果）
- *   将在 M5/M6 逐步补齐
+ * ExecuteJob 用例（M6）：
+ * - MQ consumer 侧调用（按 jobId 幂等）
+ * - 事务内写 jobs + outbox（结果事件），事务提交后再 ack
  */
 export interface ExecuteJobCommand {
   messageId?: string;
@@ -21,25 +21,41 @@ export interface ExecuteJobCommand {
   payload: ComputeJobRequestedV1;
 }
 
-export type ExecuteJobResult = {
-  kind: 'inserted' | 'duplicate' | 'conflict';
-  jobId: string;
-  requestHash: string;
-  outboxEventId: string | null;
-};
+export type ExecuteJobResult =
+  | {
+      kind: 'duplicate' | 'conflict';
+      jobId: string;
+      requestHash: string;
+      outboxEventId: null;
+    }
+  | {
+      kind: 'processed';
+      status: 'succeeded' | 'failed';
+      jobId: string;
+      requestHash: string;
+      outboxEventId: string;
+    };
+
+type TransactionResult =
+  | { kind: 'duplicate' }
+  | { kind: 'conflict' }
+  | { kind: 'processed'; status: 'succeeded' | 'failed' };
 
 @Injectable()
 export class ExecuteJobUseCase {
   constructor(
     @Inject(UNIT_OF_WORK) private readonly unitOfWork: UnitOfWorkPort,
+    private readonly graphValidatorService: GraphValidatorService,
+    private readonly hashingService: HashingService,
+    @Inject(RUNNER_PORT) private readonly runnerPort: RunnerPort,
   ) {}
 
   async execute(command: ExecuteJobCommand): Promise<ExecuteJobResult> {
     const requestHash = computeJobRequestHash(command.payload);
     const outboxEventId = randomUUID();
 
-    const result = await this.unitOfWork.runInTransaction(
-      async ({ jobRepo, outboxRepo }) => {
+    const result: TransactionResult = await this.unitOfWork.runInTransaction(
+      async ({ jobRepo, versionRepo, outboxRepo }) => {
         const insertResult = await jobRepo.tryInsertRequested({
           jobId: command.payload.jobId,
           requestHash,
@@ -49,37 +65,251 @@ export class ExecuteJobUseCase {
           versionUsed: command.payload.definitionRef.version,
         });
 
-        if (insertResult.kind === 'inserted') {
+        if (insertResult.kind === 'duplicate') {
+          return { kind: 'duplicate' } satisfies TransactionResult;
+        }
+        if (insertResult.kind === 'conflict') {
+          return { kind: 'conflict' } satisfies TransactionResult;
+        }
+
+        await jobRepo.markRunning(command.payload.jobId);
+
+        const definitionRefUsed = {
+          definitionId: command.payload.definitionRef.definitionId,
+          version: command.payload.definitionRef.version,
+        };
+
+        let definitionHash: string | null = null;
+        let inputsHash: string | null = null;
+
+        try {
+          const version = await versionRepo.getVersion(
+            definitionRefUsed.definitionId,
+            definitionRefUsed.version,
+          );
+          if (!version) {
+            throw new UseCaseError(
+              'DEFINITION_NOT_FOUND',
+              `definition not found: ${definitionRefUsed.definitionId}@${definitionRefUsed.version}`,
+            );
+          }
+          if (version.status !== 'published') {
+            throw new UseCaseError(
+              'DEFINITION_NOT_PUBLISHED',
+              `definition is not published: ${definitionRefUsed.definitionId}@${definitionRefUsed.version}`,
+            );
+          }
+
+          const graphIssues = this.graphValidatorService.validateGraph(
+            version.content,
+          );
+          const graphErrors = graphIssues.filter(
+            (issue) => issue.severity === 'error',
+          );
+          if (graphErrors.length > 0) {
+            throw new UseCaseError(
+              'INPUT_VALIDATION_ERROR',
+              'definition validation failed',
+              graphErrors,
+            );
+          }
+
+          const graph = version.content as unknown as GraphJsonV1;
+          const computedDefinitionHash =
+            this.hashingService.computeDefinitionHash({
+              contentType: 'graph_json',
+              content: version.content,
+              outputSchema: version.outputSchema,
+              runnerConfig: version.runnerConfig,
+            });
+          definitionHash = computedDefinitionHash;
+
+          const inputsSnapshot = this.hashingService.buildInputsSnapshot(
+            graph.variables,
+            command.payload.inputs,
+            command.payload.options,
+          );
+          if (!inputsSnapshot.ok) {
+            throw new UseCaseError(
+              'INPUT_VALIDATION_ERROR',
+              inputsSnapshot.message ?? 'inputs validation failed',
+              inputsSnapshot.path ? { path: inputsSnapshot.path } : undefined,
+            );
+          }
+          const computedInputsHash = inputsSnapshot.inputsHash ?? '';
+          inputsHash = computedInputsHash;
+
+          let runnerOutputs: Record<string, unknown>;
+          try {
+            runnerOutputs = this.runnerPort.run({
+              content: version.content,
+              variableValues: inputsSnapshot.variables ?? {},
+              runnerConfig: version.runnerConfig,
+              options: inputsSnapshot.options ?? {},
+            }).outputs;
+          } catch (error) {
+            if (error instanceof RunnerExecutionError) {
+              throw new UseCaseError(error.code, error.message, error.details);
+            }
+            throw new UseCaseError('INTERNAL_ERROR', 'runner execution failed');
+          }
+
+          const outputsSnapshot = this.hashingService.buildOutputsSnapshot(
+            graph.outputs,
+            runnerOutputs,
+          );
+          if (!outputsSnapshot.ok) {
+            throw new UseCaseError(
+              'RUNNER_DETERMINISTIC_ERROR',
+              outputsSnapshot.message ?? 'outputs validation failed',
+              outputsSnapshot.path ? { path: outputsSnapshot.path } : undefined,
+            );
+          }
+          const computedOutputs = outputsSnapshot.outputs ?? {};
+          const computedOutputsHash = outputsSnapshot.outputsHash ?? '';
+
+          const computedAt = new Date();
+          await jobRepo.markSucceeded({
+            jobId: command.payload.jobId,
+            definitionHash: computedDefinitionHash,
+            inputsHash: computedInputsHash,
+            outputsHash: computedOutputsHash,
+            outputs: computedOutputs,
+            computedAt,
+          });
+
           await outboxRepo.enqueue({
             id: outboxEventId,
-            eventType: 'compute.job.requested.accepted.v1',
-            routingKey: 'compute.job.requested.accepted.v1',
+            eventType: 'compute.job.succeeded.v1',
+            routingKey: 'compute.job.succeeded.v1',
             payload: {
               schemaVersion: 1,
-              jobId: insertResult.job.jobId,
-              definitionRef: {
-                definitionId: insertResult.job.definitionId,
-                version: insertResult.job.versionUsed,
-              },
-              requestHash: insertResult.job.requestHash,
-              requestedAt: insertResult.job.requestedAt.toISOString(),
+              jobId: command.payload.jobId,
+              definitionRefUsed,
+              definitionHash: computedDefinitionHash,
+              inputsHash: computedInputsHash,
+              outputs: computedOutputs,
+              outputsHash: computedOutputsHash,
+              computedAt: computedAt.toISOString(),
             },
             headers: {
               messageId: command.messageId ?? null,
               correlationId: command.correlationId ?? null,
             },
           });
-        }
 
-        return insertResult;
+          return {
+            kind: 'processed',
+            status: 'succeeded',
+          } satisfies TransactionResult;
+        } catch (error) {
+          const failure = mapFailure(error);
+          const failedAt = new Date();
+
+          await jobRepo.markFailed({
+            jobId: command.payload.jobId,
+            definitionHash,
+            inputsHash,
+            errorCode: failure.code,
+            errorMessage: failure.message,
+            failedAt,
+          });
+
+          await outboxRepo.enqueue({
+            id: outboxEventId,
+            eventType: 'compute.job.failed.v1',
+            routingKey: 'compute.job.failed.v1',
+            payload: {
+              schemaVersion: 1,
+              jobId: command.payload.jobId,
+              definitionRefUsed,
+              definitionHash: definitionHash ?? undefined,
+              inputsHash: inputsHash ?? undefined,
+              error: {
+                code: failure.code,
+                message: failure.message,
+                details: failure.details,
+              },
+              retryable: failure.retryable,
+              failedAt: failedAt.toISOString(),
+            },
+            headers: {
+              messageId: command.messageId ?? null,
+              correlationId: command.correlationId ?? null,
+            },
+          });
+
+          return {
+            kind: 'processed',
+            status: 'failed',
+          } satisfies TransactionResult;
+        }
       },
     );
 
+    if (result.kind === 'duplicate' || result.kind === 'conflict') {
+      return {
+        kind: result.kind,
+        jobId: command.payload.jobId,
+        requestHash,
+        outboxEventId: null,
+      };
+    }
+
     return {
-      kind: result.kind,
+      kind: 'processed',
+      status: result.status,
       jobId: command.payload.jobId,
       requestHash,
-      outboxEventId: result.kind === 'inserted' ? outboxEventId : null,
+      outboxEventId,
     };
+  }
+}
+
+function mapFailure(error: unknown): {
+  code: string;
+  message: string;
+  details?: unknown;
+  retryable: boolean;
+} {
+  if (error instanceof UseCaseError) {
+    return {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      retryable: isRetryableErrorCode(error.code),
+    };
+  }
+
+  if (error instanceof RunnerExecutionError) {
+    return {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      retryable: isRetryableErrorCode(error.code),
+    };
+  }
+
+  const message =
+    error instanceof Error && error.message ? error.message : 'internal error';
+  return {
+    code: 'INTERNAL_ERROR',
+    message,
+    details:
+      error instanceof Error
+        ? { name: error.name, message: error.message }
+        : undefined,
+    retryable: true,
+  };
+}
+
+function isRetryableErrorCode(code: string): boolean {
+  switch (code) {
+    case 'RUNNER_TIMEOUT':
+    case 'ENGINE_TEMPORARY_UNAVAILABLE':
+    case 'INTERNAL_ERROR':
+      return true;
+    default:
+      return false;
   }
 }
