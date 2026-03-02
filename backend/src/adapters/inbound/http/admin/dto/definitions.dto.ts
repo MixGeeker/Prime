@@ -1,0 +1,126 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  IsIn,
+  IsInt,
+  IsObject,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+
+/**
+ * Admin API DTO（与 `API_DESIGN.md` 对齐）。
+ *
+ * 说明：
+ * - 这里只做“输入结构 + class-validator 校验”
+ * - 业务校验（graph validate / 类型系统等）将在 M2/M4 实现
+ */
+class DefinitionRefDto {
+  @ApiProperty()
+  @IsString()
+  definitionId!: string;
+
+  @ApiProperty()
+  @IsInt()
+  @Min(1)
+  version!: number;
+}
+
+class DefinitionDto {
+  @ApiProperty({ enum: ['graph_json'] })
+  @IsIn(['graph_json'])
+  contentType!: 'graph_json';
+
+  @ApiProperty()
+  @IsObject()
+  content!: Record<string, unknown>;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  outputSchema?: Record<string, unknown>;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  runnerConfig?: Record<string, unknown>;
+}
+
+export class CreateDefinitionDraftDto extends DefinitionDto {
+  @ApiProperty()
+  @IsString()
+  definitionId!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  changelog?: string;
+}
+
+export class UpdateDefinitionDraftDto extends DefinitionDto {
+  @ApiProperty()
+  @IsString()
+  draftRevisionId!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  changelog?: string;
+}
+
+export class ValidateDefinitionDto {
+  @ApiPropertyOptional({ type: DefinitionRefDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DefinitionRefDto)
+  definitionRef?: DefinitionRefDto;
+
+  @ApiPropertyOptional({ type: DefinitionDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DefinitionDto)
+  definition?: DefinitionDto;
+}
+
+export class DryRunDto {
+  @ApiPropertyOptional({ type: DefinitionRefDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DefinitionRefDto)
+  definitionRef?: DefinitionRefDto;
+
+  @ApiPropertyOptional({ type: DefinitionDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DefinitionDto)
+  definition?: DefinitionDto;
+
+  @ApiProperty()
+  @IsObject()
+  inputs!: Record<string, unknown>;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  options?: Record<string, unknown>;
+}
+
+export class PublishDefinitionDto {
+  @ApiProperty()
+  @IsString()
+  draftRevisionId!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  changelog?: string;
+}
+
+export class DeprecateVersionDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
