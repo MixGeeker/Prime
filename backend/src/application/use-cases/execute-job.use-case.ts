@@ -10,6 +10,7 @@ import { MetricsService } from '../../observability/metrics/metrics.service';
 import { GraphValidatorService } from '../validation/graph-validator.service';
 import type { GraphJsonV1 } from '../validation/graph-json.types';
 import { UseCaseError } from './use-case.error';
+import { DefinitionDependenciesService } from '../definition/definition-dependencies.service';
 
 /**
  * ExecuteJob 用例（M6）：
@@ -52,6 +53,7 @@ export class ExecuteJobUseCase {
     private readonly hashingService: HashingService,
     @Inject(RUNNER_PORT) private readonly runnerPort: RunnerPort,
     private readonly metricsService: MetricsService,
+    private readonly definitionDependenciesService: DefinitionDependenciesService,
   ) {}
 
   async execute(command: ExecuteJobCommand): Promise<ExecuteJobResult> {
@@ -149,6 +151,12 @@ export class ExecuteJobUseCase {
           const computedInputsHash = inputsSnapshot.inputsHash ?? '';
           inputsHash = computedInputsHash;
 
+          const dependencyBundle =
+            await this.definitionDependenciesService.buildRunnerBundle({
+              rootContent: release.content,
+              rootRef: definitionRefUsed,
+            });
+
           let runnerOutputs: Record<string, unknown>;
           try {
             runnerOutputs = this.runnerPort.run({
@@ -160,6 +168,7 @@ export class ExecuteJobUseCase {
               },
               runnerConfig: release.runnerConfig,
               options: inputsSnapshot.options ?? {},
+              definitionBundle: dependencyBundle.bundle,
             }).outputs;
           } catch (error) {
             if (error instanceof RunnerExecutionError) {

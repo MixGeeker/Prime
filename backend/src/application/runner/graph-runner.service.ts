@@ -5,11 +5,13 @@ import type { NodeDef, ValueType } from '../catalog/node-catalog.types';
 import { getNodeImplementationV1 } from '../nodes/v1/registry';
 import type {
   RunnerPort,
+  RunnerDefinitionBundleItem,
   RunnerRunParams,
   RunnerRunResult,
 } from '../ports/runner.port';
 import type {
   GraphEdge,
+  GraphEndpoint,
   GraphJsonV1,
   GraphNode,
   RoundingMode,
@@ -31,6 +33,47 @@ export class GraphRunnerService implements RunnerPort {
   constructor(private readonly nodeCatalogService: NodeCatalogService) {}
 
   run(params: RunnerRunParams): RunnerRunResult {
+    const definitionBundleMap = new Map<string, RunnerDefinitionBundleItem>();
+    for (const item of params.definitionBundle ?? []) {
+      const key = `${item.definitionId}@${item.definitionHash}`;
+      if (definitionBundleMap.has(key)) {
+        throw new RunnerExecutionError(
+          'RUNNER_DETERMINISTIC_ERROR',
+          `duplicate definition in bundle: ${key}`,
+        );
+      }
+      definitionBundleMap.set(key, item);
+    }
+
+    const rootLimits = readRunnerLimits(
+      deepMerge(params.runnerConfig ?? {}, params.options ?? {}),
+    );
+
+    return this.runInternal({
+      content: params.content,
+      entrypointKey: params.entrypointKey,
+      inputs: params.inputs,
+      runnerConfig: params.runnerConfig,
+      options: params.options,
+      definitionBundleMap,
+      callDepth: 0,
+      maxCallDepth: rootLimits.maxCallDepth,
+    });
+  }
+
+  private runInternal(params: {
+    content: Record<string, unknown>;
+    entrypointKey?: string;
+    inputs: {
+      globals: Record<string, unknown>;
+      params: Record<string, unknown>;
+    };
+    runnerConfig?: Record<string, unknown> | null;
+    options?: Record<string, unknown> | null;
+    definitionBundleMap: Map<string, RunnerDefinitionBundleItem>;
+    callDepth: number;
+    maxCallDepth: number;
+  }): RunnerRunResult {
     const graph = params.content as unknown as GraphJsonV1;
 
     const effectiveRunnerConfig = deepMerge(
@@ -91,7 +134,10 @@ export class GraphRunnerService implements RunnerPort {
         continue;
       }
 
-      const canonicalized = canonicalizeValueByType(local.valueType, defaultValue);
+      const canonicalized = canonicalizeValueByType(
+        local.valueType,
+        defaultValue,
+      );
       if (!canonicalized.ok) {
         throw new RunnerExecutionError(
           'RUNNER_DETERMINISTIC_ERROR',
@@ -126,6 +172,34 @@ export class GraphRunnerService implements RunnerPort {
         localsByName.set(name, value);
         pureOutputsCacheByNodeId.clear();
       },
+      callDefinition: (call) => {
+        if (params.callDepth + 1 > params.maxCallDepth) {
+          throw new RunnerExecutionError(
+            'RUNNER_DETERMINISTIC_ERROR',
+            `call depth exceeds maxCallDepth: ${params.callDepth + 1} > ${params.maxCallDepth}`,
+          );
+        }
+
+        const key = `${call.definitionId}@${call.definitionHash}`;
+        const callee = params.definitionBundleMap.get(key);
+        if (!callee) {
+          throw new RunnerExecutionError(
+            'RUNNER_DETERMINISTIC_ERROR',
+            `callee definition not found in bundle: ${key}`,
+          );
+        }
+
+        return this.runInternal({
+          content: callee.content,
+          entrypointKey: call.entrypointKey,
+          inputs: call.inputs,
+          runnerConfig: callee.runnerConfig ?? null,
+          options: params.options ?? null,
+          definitionBundleMap: params.definitionBundleMap,
+          callDepth: params.callDepth + 1,
+          maxCallDepth: params.maxCallDepth,
+        });
+      },
     };
 
     const entrypointKey =
@@ -140,10 +214,14 @@ export class GraphRunnerService implements RunnerPort {
       );
     }
 
-    let currentExec = entrypoint.to;
+    const execStack: GraphEndpoint[] = [entrypoint.to];
     let steps = 0;
 
-    while (currentExec) {
+    while (execStack.length > 0) {
+      const currentExec = execStack.pop();
+      if (!currentExec) {
+        break;
+      }
       ensureTimeout(startedAt, limits.timeoutMs);
       steps++;
       if (steps > limits.maxSteps) {
@@ -212,9 +290,6 @@ export class GraphRunnerService implements RunnerPort {
       }
 
       const execOutputs = nodeDef.execOutputs ?? [];
-      if (execOutputs.length === 0) {
-        break;
-      }
 
       const execResult = impl.execute
         ? impl.execute({
@@ -227,17 +302,38 @@ export class GraphRunnerService implements RunnerPort {
           })
         : execOutputs.length === 1
           ? { kind: 'continue' as const, port: execOutputs[0]!.name }
-          : { kind: 'return' as const };
+          : execOutputs.length > 1
+            ? { kind: 'return' as const }
+            : null;
+
+      if (!execResult) {
+        continue;
+      }
 
       if (execResult.kind === 'return') {
+        execStack.length = 0;
         break;
+      }
+
+      if (execResult.kind === 'continue_many') {
+        // LIFO 栈：逆序 push 以保证 ports[0] 最先执行（确定性）。
+        for (let i = execResult.ports.length - 1; i >= 0; i--) {
+          const port = execResult.ports[i];
+          if (!port) {
+            continue;
+          }
+          const nextEdge = execEdgeByFromPort.get(`${node.id}::${port}`);
+          if (nextEdge) {
+            execStack.push(nextEdge.to);
+          }
+        }
+        continue;
       }
 
       const nextEdge = execEdgeByFromPort.get(`${node.id}::${execResult.port}`);
-      if (!nextEdge) {
-        break;
+      if (nextEdge) {
+        execStack.push(nextEdge.to);
       }
-      currentExec = nextEdge.to;
     }
 
     const outputs: Record<string, unknown> = {};

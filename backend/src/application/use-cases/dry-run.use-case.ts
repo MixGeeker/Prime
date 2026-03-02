@@ -10,6 +10,7 @@ import { HashingService } from '../hashing/hashing.service';
 import { RunnerExecutionError } from '../runner/runner.error';
 import { UseCaseError } from './use-case.error';
 import { RUNNER_PORT, type RunnerPort } from '../ports/runner.port';
+import { DefinitionDependenciesService } from '../definition/definition-dependencies.service';
 
 export interface DryRunCommand {
   definitionRef?: {
@@ -35,6 +36,7 @@ export class DryRunUseCase {
     private readonly graphValidatorService: GraphValidatorService,
     private readonly hashingService: HashingService,
     @Inject(RUNNER_PORT) private readonly runnerPort: RunnerPort,
+    private readonly definitionDependenciesService: DefinitionDependenciesService,
   ) {}
 
   async execute(command: DryRunCommand) {
@@ -76,6 +78,17 @@ export class DryRunUseCase {
       );
     }
 
+    const rootRef =
+      resolved.definitionRefUsed.definitionId !== '__inline__'
+        ? resolved.definitionRefUsed
+        : undefined;
+    const dependencyBundle = await this.definitionDependenciesService.buildRunnerBundle(
+      {
+        rootContent: resolved.content,
+        rootRef,
+      },
+    );
+
     let runnerOutputs: Record<string, unknown>;
     try {
       runnerOutputs = this.runnerPort.run({
@@ -87,6 +100,7 @@ export class DryRunUseCase {
         },
         runnerConfig: resolved.runnerConfig,
         options: inputsSnapshot.options ?? {},
+        definitionBundle: dependencyBundle.bundle,
       }).outputs;
     } catch (error) {
       if (error instanceof RunnerExecutionError) {

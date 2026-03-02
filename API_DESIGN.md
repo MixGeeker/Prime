@@ -63,6 +63,9 @@
 - `INVALID_MESSAGE`：消息体 schema 不合法/字段缺失（不可重试；若缺少/无法解析 `jobId` 则只能进入 DLQ，不会产生结果事件）。
 - `DEFINITION_NOT_FOUND`：找不到指定 `definitionId+definitionHash`（通常不可重试）。
 - `DEFINITION_NOT_PUBLISHED`：引用了不可执行的发布物（例如已弃用；不可重试）。
+- `DEFINITION_DEPENDENCY_NOT_FOUND`：子蓝图依赖缺失（引用了不存在的 `definitionId+definitionHash`；通常不可重试）。
+- `DEFINITION_DEPENDENCY_NOT_PUBLISHED`：子蓝图依赖不可执行（例如已弃用；通常不可重试）。
+- `DEFINITION_DEPENDENCY_CYCLE`：子蓝图依赖存在循环引用（通常不可重试）。
 - `INPUT_VALIDATION_ERROR`：inputs 缺必填/类型不匹配/约束违规（不可重试；details 建议带结构化 errors）。
 - `RUNNER_TIMEOUT`：执行超时/资源限制触发（通常可重试）。
 - `RUNNER_DETERMINISTIC_ERROR`：确定性运行时错误（如除零、类型转换失败；通常不可重试）。

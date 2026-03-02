@@ -10,6 +10,7 @@ import {
 import { GraphValidatorService } from '../validation/graph-validator.service';
 import { HashingService } from '../hashing/hashing.service';
 import { UseCaseError } from './use-case.error';
+import { DefinitionDependenciesService } from '../definition/definition-dependencies.service';
 
 export interface PublishDefinitionCommand {
   definitionId: string;
@@ -26,6 +27,7 @@ export class PublishDefinitionUseCase {
     private readonly releaseRepository: DefinitionReleaseRepositoryPort,
     private readonly graphValidatorService: GraphValidatorService,
     private readonly hashingService: HashingService,
+    private readonly definitionDependenciesService: DefinitionDependenciesService,
   ) {}
 
   async execute(command: PublishDefinitionCommand) {
@@ -72,6 +74,12 @@ export class PublishDefinitionUseCase {
 
     const publishedAt = existing?.publishedAt ?? new Date();
     if (!existing) {
+      // 发布前校验依赖闭包：存在性/发布状态/循环引用/exposeOutputs 类型对齐。
+      await this.definitionDependenciesService.buildRunnerBundle({
+        rootContent: draft.content,
+        rootRef: { definitionId: draft.definitionId, definitionHash },
+      });
+
       await this.releaseRepository.insertRelease({
         definitionId: draft.definitionId,
         definitionHash,

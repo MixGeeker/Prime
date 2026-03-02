@@ -214,6 +214,7 @@ function mapUseCaseError(error: unknown) {
   switch (error.code) {
     case 'DEFINITION_DRAFT_NOT_FOUND':
     case 'DEFINITION_NOT_FOUND':
+    case 'DEFINITION_DEPENDENCY_NOT_FOUND':
       return new NotFoundException({
         code: error.code,
         message: error.message,
@@ -238,6 +239,7 @@ function mapUseCaseError(error: unknown) {
         message: error.message,
       });
     case 'DEFINITION_NOT_PUBLISHED':
+    case 'DEFINITION_DEPENDENCY_NOT_PUBLISHED':
       return new ConflictException({
         code: error.code,
         message: error.message,

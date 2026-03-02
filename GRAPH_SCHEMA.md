@@ -173,7 +173,41 @@ Compute Engine 触发执行时，job payload 中仍然携带一个 `inputs` obje
 约束（必须）：
 - `from` 必须引用节点的 **exec 输出端口**。
 - `to` 必须引用节点的 **exec 输入端口**。
+- 每个 exec 输出端口最多 1 条出边（MVP 简化；需要多分支 fan-out 请使用显式节点，例如 `flow.sequence`）。
 - 允许成环（loop），由 runner 的 limits（`maxSteps/timeoutMs`）防止无限循环。
+
+### 6.3.1 内置控制流节点（约定）
+
+> 具体 ports/paramsSchema 以 Node Catalog 为准；这里只列出关键语义，便于 Editor/Provider 对齐心智模型。
+
+#### `flow.branch`
+- 输入：`cond:Boolean`
+- exec：`in -> (true|false)`
+- 语义：短路分支；未走到的分支不会执行。
+
+#### `flow.sequence`
+- params：`count: 1..8`
+- exec：`in -> out0..out7`
+- 语义：按 `out0 -> out1 -> ...` 的顺序依次触发分支（由 Runner 的确定性调度实现）。
+
+#### `flow.while`
+- 输入：`cond:Boolean`
+- exec：`in -> (body|completed)`
+- 语义：`cond=true` 进入 `body`，否则走 `completed`；循环通过 `execEdges` 回连实现（例如把 `body` 分支末尾连回 `flow.while.in`）。
+
+#### `flow.return`
+- exec：`in -> (return)`
+- 语义：立即终止当前蓝图执行。
+
+#### `flow.call_definition`
+- params（必须）：`{ definitionId, definitionHash }`（发布物引用冻结，禁止 “latest 漂移”）
+- params（可选）：`entrypointKey`（默认 `main`）、`exposeOutputs`（强类型槽位映射）
+- value inputs：`globals:Json`、`params:Json`（必须是 object；由调用方组装要传入子图的 inputs）
+- value outputs：
+  - `outputs:Json`：子图完整 outputs object
+  - 槽位输出（最多每种类型 2 个）：`decimal0/1`、`string0/1`、`boolean0/1`、`datetime0/1`、`ratio0/1`、`json0/1`
+- 语义：执行子蓝图并返回其 outputs；若配置了 `exposeOutputs`，会把指定 outputs key 映射到对应强类型槽位端口。
+- 校验：`publish/dry-run/executeJob` 会校验依赖 release 存在且已发布、无循环引用，以及 `exposeOutputs` 的 key/type 与子图 `outputs[]` 声明一致。
 
 ### 6.4 `outputs`
 
@@ -232,4 +266,3 @@ type ValidationIssue = {
   message: string;
 };
 ```
-

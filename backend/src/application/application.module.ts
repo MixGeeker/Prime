@@ -19,6 +19,7 @@ import { UpdateDraftUseCase } from './use-cases/update-draft.use-case';
 import { HashingService } from './hashing/hashing.service';
 import { GraphRunnerService } from './runner/graph-runner.service';
 import { RUNNER_PORT } from './ports/runner.port';
+import { DefinitionDependenciesService } from './definition/definition-dependencies.service';
 
 /**
  * Application 层模块：
@@ -41,6 +42,7 @@ import { RUNNER_PORT } from './ports/runner.port';
     GetReleaseUseCase,
     GetJobUseCase,
     DryRunUseCase,
+    DefinitionDependenciesService,
     HashingService,
     GraphRunnerService,
     {
@@ -64,6 +66,7 @@ import { RUNNER_PORT } from './ports/runner.port';
     GetReleaseUseCase,
     GetJobUseCase,
     DryRunUseCase,
+    DefinitionDependenciesService,
     HashingService,
     GraphRunnerService,
     NodeCatalogService,

@@ -19,6 +19,9 @@ Editor 必须从 Node Catalog 获取：
 - 节点参数 schema（用于渲染配置表单）
 - 节点说明文档（用于提示）
 
+控制流相关节点（内置约定，详见 `GRAPH_SCHEMA.md`）：
+- `flow.branch` / `flow.sequence` / `flow.while` / `flow.return` / `flow.call_definition`
+
 ### 2.2 Definition Admin API
 Editor 通过 Admin API：
 - 保存/读取 draft
@@ -30,6 +33,12 @@ Editor 通过 Admin API：
 编辑器侧需要特别注意：
 - `content` 只承载 BlueprintGraph（见 `GRAPH_SCHEMA.md`），**不包含** `runnerConfig`；`runnerConfig` 通过 Admin API 的独立字段提交。
 - 可把 UI 布局/分组/说明放入 `content.metadata`；引擎执行时忽略，且不参与 `definitionHash`（见 `HASHING_SPEC.md`）。
+- 每个 exec 输出端口最多 1 条出边（MVP 简化）；需要“一进多出”的顺序分支请使用 `flow.sequence`。
+
+### 2.3 子蓝图调用（`flow.call_definition`）
+Editor 建议提供：
+- 依赖选择：用户必须显式选择 `{ definitionId, definitionHash }`（发布物引用冻结）。
+- 输出映射：基于被调蓝图的 `outputs[]` 列表，配置 `exposeOutputs`（把某些 outputs key 映射到强类型槽位端口）。
 
 ---
 

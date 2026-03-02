@@ -6,6 +6,17 @@ export interface RunnerRuntimeContext {
   params: Record<string, unknown>;
   getLocal(name: string): unknown;
   setLocal(name: string, value: unknown): void;
+  callDefinition(params: {
+    definitionId: string;
+    definitionHash: string;
+    entrypointKey?: string;
+    inputs: {
+      globals: Record<string, unknown>;
+      params: Record<string, unknown>;
+    };
+  }): {
+    outputs: Record<string, unknown>;
+  };
 }
 
 export interface NodeEvaluationContext {
@@ -22,6 +33,7 @@ export interface NodeExecutionContext extends NodeEvaluationContext {
 
 export type NodeExecutionResult =
   | { kind: 'continue'; port: string }
+  | { kind: 'continue_many'; ports: string[] }
   | { kind: 'return' };
 
 export interface NodeImplementation {

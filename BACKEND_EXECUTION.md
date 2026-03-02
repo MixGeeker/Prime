@@ -38,7 +38,7 @@
 - M7：已完成（4/4）
 - M8：已完成（4/4）
 - M9：已完成（3/3）
-- M10：进行中（6/7）— 蓝图控制流重构（去版本号）
+- M10：已完成（7/7）— 蓝图控制流重构（去版本号）
 
 ### M0. 项目骨架与工程规范（可启动）
 
@@ -278,7 +278,7 @@
 - [x] Node Catalog：`nodeType` 全局唯一（不再有 nodeVersion）；新增 `execInputs/execOutputs`
 - [x] Runner：控制流解释器（exec token）+ 惰性 value 求值（短路）+ locals store + limits（maxSteps/timeout/maxCallDepth）
 - [x] hashing 与 golden cases 更新（definitionHash/inputsHash/outputsHash）+ 文档对齐（API/Schema/Design）
-- [ ] 子蓝图调用（call_definition）：发布时冻结 callee 为 `definitionHash`；运行期受 `maxCallDepth` 限制
+- [x] 子蓝图调用（call_definition）：发布时冻结 callee 为 `definitionHash`；运行期受 `maxCallDepth` 限制
 
 **验收标准（DoD）**
 - publish 返回 `definitionHash`；execute/dry-run/MQ 都能按 `{definitionId, definitionHash}` 精确执行。
