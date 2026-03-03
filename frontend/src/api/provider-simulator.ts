@@ -1,5 +1,6 @@
 import axios, { type AxiosRequestConfig } from 'axios';
 import { useSettingsStore } from '@/stores/settings';
+import type { InputsCatalogV1 } from '@/engine/types';
 
 async function request<T>(config: AxiosRequestConfig): Promise<T> {
   const settings = useSettingsStore();
@@ -14,6 +15,10 @@ async function request<T>(config: AxiosRequestConfig): Promise<T> {
 export const providerSimulatorApi = {
   health(): Promise<{ ok: boolean; mqConnected: boolean; storageUpdatedAt: string }> {
     return request({ method: 'GET', url: '/health' });
+  },
+
+  getInputsCatalog(): Promise<InputsCatalogV1> {
+    return request({ method: 'GET', url: '/catalog/inputs' });
   },
 
   getGlobalFacts(): Promise<Record<string, unknown>> {
@@ -44,4 +49,3 @@ export const providerSimulatorApi = {
     return request({ method: 'POST', url: '/jobs', data: body });
   },
 };
-

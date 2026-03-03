@@ -1,7 +1,8 @@
 <template>
   <div>
     <div class="row" style="margin-bottom: 10px">
-      <el-button type="primary" @click="openCreate">新增 global</el-button>
+      <el-button type="primary" :disabled="isBusinessMode" @click="openCreate">新增 global</el-button>
+      <el-button :disabled="!inputsCatalogGlobals.length" @click="openImport">从 Provider 目录导入</el-button>
       <div class="muted">声明哪些 `inputs.globals.*` 字段可在图内读取（强类型校验 + inputsHash 来源）。</div>
     </div>
 
@@ -31,11 +32,11 @@
     <el-dialog v-model="dialogOpen" :title="editingIndex === null ? '新增 global' : '编辑 global'" width="640px">
       <el-form label-position="top" :model="form">
         <el-form-item label="name">
-          <el-input v-model="form.name" placeholder="例如：fxRate" />
+          <el-input v-model="form.name" placeholder="例如：fxRate" :disabled="isBusinessMode" />
         </el-form-item>
 
         <el-form-item label="valueType">
-          <el-select v-model="form.valueType" style="width: 100%">
+          <el-select v-model="form.valueType" style="width: 100%" :disabled="isBusinessMode">
             <el-option v-for="t in valueTypes" :key="t" :label="t" :value="t" />
           </el-select>
         </el-form-item>
@@ -67,16 +68,45 @@
         <el-button type="primary" @click="save">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="importOpen" title="从 Provider Inputs Catalog 导入 globals" width="760px">
+      <el-input v-model="importQuery" placeholder="搜索 name/description..." clearable />
+
+      <el-table
+        :data="filteredCatalogGlobals"
+        size="small"
+        height="360px"
+        stripe
+        style="margin-top: 10px"
+        @selection-change="onImportSelectionChange"
+      >
+        <el-table-column type="selection" width="48" />
+        <el-table-column prop="name" label="name" width="180" />
+        <el-table-column prop="valueType" label="valueType" width="110" />
+        <el-table-column prop="description" label="description" min-width="260" />
+      </el-table>
+
+      <template #footer>
+        <el-button @click="importOpen = false">取消</el-button>
+        <el-button type="primary" :disabled="importSelection.length === 0" @click="importSelected">
+          导入 {{ importSelection.length }} 项
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import type { GraphInputDef, GraphJsonV1, ValueType } from '@/engine/types';
+import type { GraphInputDef, GraphJsonV1, InputsCatalogV1, ValueType } from '@/engine/types';
+import { useSettingsStore } from '@/stores/settings';
 
-const props = defineProps<{ graph: GraphJsonV1 }>();
+const props = defineProps<{ graph: GraphJsonV1; inputsCatalog?: InputsCatalogV1 | null }>();
 const emit = defineEmits<{ (e: 'dirty'): void }>();
+
+const settings = useSettingsStore();
+const isBusinessMode = computed(() => settings.studioMode === 'business');
 
 const valueTypes: ValueType[] = ['Decimal', 'Ratio', 'String', 'Boolean', 'DateTime', 'Json'];
 
@@ -100,6 +130,23 @@ const form = ref<{
   description: '',
 });
 
+const importOpen = ref(false);
+const importQuery = ref('');
+const importSelection = ref<Array<{ name: string; valueType: ValueType; description?: string }>>([]);
+
+const inputsCatalogGlobals = computed(() => props.inputsCatalog?.globals ?? []);
+
+const filteredCatalogGlobals = computed(() => {
+  const q = importQuery.value.trim().toLowerCase();
+  const items = inputsCatalogGlobals.value;
+  if (!q) return items;
+  return items.filter(
+    (it) =>
+      it.name.toLowerCase().includes(q) ||
+      String(it.description ?? '').toLowerCase().includes(q),
+  );
+});
+
 function formatDefault(v: unknown): string {
   if (typeof v === 'undefined') return '';
   if (v === null) return 'null';
@@ -113,6 +160,10 @@ function formatDefault(v: unknown): string {
 }
 
 function openCreate() {
+  if (isBusinessMode.value) {
+    ElMessage.warning('业务模式下请从 Provider 目录导入');
+    return;
+  }
   editingIndex.value = null;
   defaultError.value = null;
   form.value = {
@@ -209,6 +260,41 @@ function save() {
   emit('dirty');
   ElMessage.success('已保存');
 }
+
+function openImport() {
+  if (inputsCatalogGlobals.value.length === 0) {
+    ElMessage.warning('Provider Inputs Catalog 不可用或为空');
+    return;
+  }
+  importSelection.value = [];
+  importQuery.value = '';
+  importOpen.value = true;
+}
+
+function onImportSelectionChange(rows: any[]) {
+  importSelection.value = rows ?? [];
+}
+
+function importSelected() {
+  const existing = new Set(props.graph.globals.map((g) => g.name));
+  let added = 0;
+  for (const it of importSelection.value) {
+    if (!it?.name) continue;
+    if (existing.has(it.name)) continue;
+    const next: GraphInputDef = {
+      name: it.name,
+      valueType: it.valueType,
+      required: true,
+      description: it.description,
+    };
+    props.graph.globals.push(next);
+    existing.add(it.name);
+    added++;
+  }
+  importOpen.value = false;
+  emit('dirty');
+  ElMessage.success(`已导入 ${added} 项`);
+}
 </script>
 
 <style scoped>
@@ -230,4 +316,3 @@ function save() {
   color: var(--el-color-danger);
 }
 </style>
-

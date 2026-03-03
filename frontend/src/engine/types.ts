@@ -130,3 +130,15 @@ export interface ListResponse<T> {
   nextCursor: string | null;
 }
 
+export interface InputsCatalogItem {
+  name: string;
+  valueType: ValueType;
+  description?: string;
+  example?: unknown;
+}
+
+export interface InputsCatalogV1 {
+  schemaVersion: 1;
+  globals: InputsCatalogItem[];
+  params: InputsCatalogItem[];
+}

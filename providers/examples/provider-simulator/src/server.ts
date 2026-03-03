@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import type { MqClient } from './mq';
 import type { Storage } from './storage';
-import type { JobRequestedV1, StoredJob } from './types';
+import type { InputsCatalogV1, JobRequestedV1, StoredJob } from './types';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object') return false;
@@ -28,6 +28,57 @@ export async function createServer(params: {
 
   app.get('/facts/global', async () => {
     return params.storage.getGlobalFacts();
+  });
+
+  app.get('/catalog/inputs', async () => {
+    const catalog: InputsCatalogV1 = {
+      schemaVersion: 1,
+      globals: [
+        {
+          name: 'companyName',
+          valueType: 'String',
+          description: '公司名称（示例全局变量）',
+          example: 'Prime Inc.',
+        },
+        {
+          name: 'taxRate',
+          valueType: 'Ratio',
+          description: '税率（0..1）',
+          example: '0.13',
+        },
+        {
+          name: 'fxRate',
+          valueType: 'Decimal',
+          description: '汇率（示例）',
+          example: '7.1234',
+        },
+      ],
+      params: [
+        {
+          name: 'productId',
+          valueType: 'String',
+          description: '商品 ID',
+          example: 'p_123',
+        },
+        {
+          name: 'payload',
+          valueType: 'Json',
+          description: '业务入参（结构化对象，示例）',
+          example: {
+            price: { base: '100', currency: 'USD' },
+            discount: { ratio: '0.1' },
+          },
+        },
+        {
+          name: 'asOf',
+          valueType: 'DateTime',
+          description: '生效时间点（ISO8601）',
+          example: '2026-03-03T00:00:00Z',
+        },
+      ],
+    };
+
+    return catalog;
   });
 
   app.put('/facts/global', async (req, reply) => {
@@ -134,4 +185,3 @@ export async function createServer(params: {
   await app.listen({ port: params.httpPort, host: '0.0.0.0' });
   return app;
 }
-

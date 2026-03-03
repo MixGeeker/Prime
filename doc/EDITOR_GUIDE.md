@@ -28,6 +28,11 @@ Editor 必须从 Node Catalog 获取：
 控制流相关节点（内置约定，详见 `GRAPH_SCHEMA.md`）：
 - `flow.branch` / `flow.sequence` / `flow.while` / `flow.return` / `flow.call_definition`
 
+> UX 建议：不要把 `inputs.*` 这类“内部读取节点”直接暴露给业务用户。更合理的做法是提供一个 Variables/Inputs 面板：
+> - 先声明 globals/entrypoints(params) 输入契约
+> - 用户从面板点击/拖拽某个变量，Editor 自动在画布生成正确的 `inputs.(globals|params).<type>` 节点并填充 `params.name`
+> 这样既保留强类型校验，又避免节点库里出现“一堆 inputs 节点”的低可用体验。
+
 ### 2.2 Definition Admin API
 Editor 通过 Admin API：
 - 保存/读取 draft

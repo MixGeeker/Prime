@@ -92,6 +92,9 @@ Provider 直接发布 `compute.job.requested.v1` 到 `compute.commands`（见 `A
 - `globals.companyName`: `String`
 - `params.productId`: `String`
 
+仓库内参考实现：
+- Provider Simulator 提供 `GET /catalog/inputs`（`providers/examples/provider-simulator`），用于给 Studio 提供可选字段、类型与示例值。
+
 ---
 
 ## 6. 对手价抓取（如果需要）

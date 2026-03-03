@@ -73,29 +73,53 @@
           </div>
         </template>
 
-        <el-input v-model="paletteQuery" placeholder="搜索 nodeType / title..." clearable />
-        <div class="palette">
-          <el-collapse v-model="openCategories">
-            <el-collapse-item v-for="c in paletteCategories" :key="c.category" :name="c.category">
-              <template #title>
-                <span class="cat">{{ c.category }}</span>
-                <span class="muted"> · {{ c.nodes.length }}</span>
-              </template>
-              <div class="node-list">
-                <el-button
-                  v-for="n in c.nodes"
-                  :key="n.nodeType"
-                  text
-                  class="node-btn"
-                  @click="addNode(n.nodeType)"
-                >
-                  <div class="node-title">{{ n.title }}</div>
-                  <div class="node-sub">{{ n.nodeType }}</div>
-                </el-button>
-              </div>
-            </el-collapse-item>
-          </el-collapse>
-        </div>
+        <el-tabs v-model="leftTab">
+          <el-tab-pane label="节点" name="nodes">
+            <div class="row" style="margin-bottom: 10px">
+              <el-input v-model="paletteQuery" placeholder="搜索 nodeType / title..." clearable />
+              <el-switch v-model="showInternalNodes" active-text="显示内部节点" />
+            </div>
+            <div class="palette">
+              <el-collapse v-model="openCategories">
+                <el-collapse-item v-for="c in paletteCategories" :key="c.category" :name="c.category">
+                  <template #title>
+                    <span class="cat">{{ c.category }}</span>
+                    <span class="muted"> · {{ c.nodes.length }}</span>
+                  </template>
+                  <div class="node-list">
+                    <el-button
+                      v-for="n in c.nodes"
+                      :key="n.nodeType"
+                      text
+                      class="node-btn"
+                      @click="addNode(n.nodeType)"
+                    >
+                      <div class="node-title">{{ n.title }}</div>
+                      <div class="node-sub">{{ n.nodeType }}</div>
+                    </el-button>
+                  </div>
+                </el-collapse-item>
+              </el-collapse>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="变量" name="vars">
+            <VariablesPanel
+              :graph="graph"
+              :entrypoint-key="variablesEntrypointKey"
+              @update:entrypoint-key="setVariablesEntrypointKey"
+              @pick="onPickVariable"
+            />
+            <el-alert
+              v-if="settings.studioMode === 'business' && !inputsCatalog"
+              type="warning"
+              show-icon
+              title="业务模式：Inputs Catalog 未加载"
+              description="请确认 Provider Simulator 已启动且 Settings 中的 Base URL 正确，然后刷新页面或切换一次模式。"
+              style="margin-top: 10px"
+            />
+          </el-tab-pane>
+        </el-tabs>
       </el-card>
     </div>
 
@@ -159,21 +183,22 @@
             </div>
           </el-tab-pane>
 
-          <el-tab-pane label="图" name="graph">
+          <el-tab-pane label="Inputs" name="graph">
             <el-tabs v-model="graphTab">
               <el-tab-pane label="globals" name="globals">
-                <GlobalsEditor :graph="graph" @dirty="() => (dirty = true)" />
-              </el-tab-pane>
-              <el-tab-pane label="locals" name="locals">
-                <LocalsEditor :graph="graph" @dirty="() => (dirty = true)" />
+                <GlobalsEditor :graph="graph" :inputs-catalog="inputsCatalog" @dirty="() => (dirty = true)" />
               </el-tab-pane>
               <el-tab-pane label="entrypoints" name="entrypoints">
                 <EntrypointsEditor
                   :graph="graph"
                   :catalog="catalog"
                   :selected-node-id="selectedNodeId"
+                  :inputs-catalog="inputsCatalog"
                   @dirty="() => (dirty = true)"
                 />
+              </el-tab-pane>
+              <el-tab-pane label="locals" name="locals">
+                <LocalsEditor :graph="graph" @dirty="() => (dirty = true)" />
               </el-tab-pane>
               <el-tab-pane label="outputs" name="outputs">
                 <OutputsEditor :graph="graph" :catalog="catalog" @dirty="() => (dirty = true)" />
@@ -278,11 +303,14 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { backendApi, normalizeHttpError } from '@/api/backend';
+import { providerSimulatorApi } from '@/api/provider-simulator';
 import type {
   DefinitionDraft,
   DefinitionSummary,
   GraphJsonV1,
+  InputsCatalogV1,
   NodeCatalog,
+  ValueType,
   ValidationIssue,
 } from '@/engine/types';
 import { createEmptyGraph, getUiNodePositionMap } from '@/features/studio/graph';
@@ -293,6 +321,8 @@ import JsonExplorer from '@/features/studio/JsonExplorer.vue';
 import LocalsEditor from '@/features/studio/LocalsEditor.vue';
 import OutputsEditor from '@/features/studio/OutputsEditor.vue';
 import ParamsForm from '@/features/studio/ParamsForm.vue';
+import VariablesPanel from '@/features/studio/VariablesPanel.vue';
+import { useSettingsStore } from '@/stores/settings';
 
 const catalog = ref<NodeCatalog | null>(null);
 const catalogLoading = ref(false);
@@ -320,6 +350,13 @@ const graphTab = ref<'globals' | 'locals' | 'entrypoints' | 'outputs' | 'runner'
 
 const paletteQuery = ref('');
 const openCategories = ref<string[]>([]);
+const leftTab = ref<'nodes' | 'vars'>('nodes');
+const showInternalNodes = ref(false);
+const variablesEntrypointKey = ref('main');
+
+const settings = useSettingsStore();
+const inputsCatalog = ref<InputsCatalogV1 | null>(null);
+const inputsCatalogLoading = ref(false);
 
 const runnerConfigText = ref('{}');
 const runnerConfigError = ref<string | null>(null);
@@ -337,6 +374,44 @@ const previewInputsError = ref<string | null>(null);
 const previewOptionsError = ref<string | null>(null);
 const dryRunLoading = ref(false);
 const dryRunResult = ref<any | null>(null);
+
+async function loadInputsCatalog() {
+  if (settings.studioMode !== 'business') {
+    inputsCatalog.value = null;
+    return;
+  }
+  inputsCatalogLoading.value = true;
+  try {
+    inputsCatalog.value = await providerSimulatorApi.getInputsCatalog();
+  } catch (e) {
+    inputsCatalog.value = null;
+    ElMessage.warning(`Inputs Catalog 加载失败：${normalizeHttpError(e)}`);
+  } finally {
+    inputsCatalogLoading.value = false;
+  }
+}
+
+watch(
+  () => [settings.studioMode, settings.providerSimulatorBaseUrl],
+  () => {
+    void loadInputsCatalog();
+  },
+  { immediate: true },
+);
+
+watch(
+  () => graph.value.entrypoints.map((e) => e.key),
+  (keys) => {
+    if (keys.length === 0) {
+      variablesEntrypointKey.value = 'main';
+      return;
+    }
+    if (!keys.includes(variablesEntrypointKey.value)) {
+      variablesEntrypointKey.value = keys.includes('main') ? 'main' : keys[0]!;
+    }
+  },
+  { immediate: true },
+);
 
 const hasGraph = computed(() => Boolean(graph.value));
 const canSave = computed(() => Boolean(selectedDefinitionId.value && currentDraftInfo.value?.draftRevisionId));
@@ -362,12 +437,16 @@ const showJsonExplorer = computed(() => {
 const paletteCategories = computed(() => {
   const nodes = (catalog.value?.nodes ?? []) as any[];
   const q = paletteQuery.value.trim().toLowerCase();
+  const visibleNodes = showInternalNodes.value
+    ? nodes
+    : nodes.filter((n) => !String(n.nodeType).startsWith('inputs.'));
+
   const filtered = q
-    ? nodes.filter(
+    ? visibleNodes.filter(
         (n) =>
           String(n.nodeType).toLowerCase().includes(q) || String(n.title).toLowerCase().includes(q),
       )
-    : nodes;
+    : visibleNodes;
 
   const map = new Map<string, any[]>();
   for (const n of filtered) {
@@ -542,6 +621,55 @@ async function addNode(nodeType: string) {
     return;
   }
   await canvasRef.value?.addNode(nodeType);
+}
+
+function setVariablesEntrypointKey(v: string) {
+  variablesEntrypointKey.value = v;
+}
+
+function valueTypeToNodeSuffix(vt: ValueType): string {
+  switch (vt) {
+    case 'Decimal':
+      return 'decimal';
+    case 'Ratio':
+      return 'ratio';
+    case 'String':
+      return 'string';
+    case 'Boolean':
+      return 'boolean';
+    case 'DateTime':
+      return 'datetime';
+    case 'Json':
+      return 'json';
+    default: {
+      const _exhaustive: never = vt;
+      return String(_exhaustive);
+    }
+  }
+}
+
+async function onPickVariable(payload: { scope: 'globals' | 'params'; input: { name: string; valueType: ValueType } }) {
+  const nodeType = `inputs.${payload.scope}.${valueTypeToNodeSuffix(payload.input.valueType)}`;
+  const positions = getUiNodePositionMap(graph.value);
+  const anchor = positions['n_start'] ?? { x: 0, y: 0 };
+
+  const existingCount = graph.value.nodes.filter((n) => String(n.nodeType).startsWith(`inputs.${payload.scope}.`)).length;
+  const pos = { x: anchor.x - 340, y: anchor.y + existingCount * 90 };
+
+  const newId = await canvasRef.value?.addNode(nodeType, {
+    params: { name: payload.input.name },
+    position: pos,
+  });
+
+  if (!newId) {
+    ElMessage.warning(`无法创建输入节点：${nodeType}`);
+    return;
+  }
+
+  selectedNodeId.value = newId;
+  rightTab.value = 'node';
+  await canvasRef.value?.focusNode(newId);
+  dirty.value = true;
 }
 
 async function addJsonChildNode(params: {

@@ -32,6 +32,12 @@
 - 支持输入 path 生成 `json.select(mode=path)`（直达）
 - 支持一键插入 `json.to.*` 把叶子 Json 值转换为强类型（用于 math/compare 等节点）
 
+## 4.2 Variables 面板（Inputs 友好入口）
+为避免节点库出现“一堆 inputs 节点”，示例实现提供 Variables 面板：
+- Inputs 契约仍由 `globals/entrypoints(params)` 声明（强类型 + inputsHash）
+- 用户从 Variables 面板点击变量，Studio 自动生成对应的 `inputs.(globals|params).<type>` 节点并填充 `params.name`
+- 节点库默认隐藏 `inputs.*`（可通过“显示内部节点”开关查看）
+
 ## 5. 错误定位
 - validate 返回 `ValidationIssue.path`（JSON Pointer）
 - 示例实现支持从 `/nodes/<index>/...` 解析 nodeId，并定位到画布节点

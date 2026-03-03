@@ -54,3 +54,17 @@ export type StorageData = {
   processedEventMessageIds: Record<string, true>;
 };
 
+export type ValueType = 'Decimal' | 'Ratio' | 'String' | 'Boolean' | 'DateTime' | 'Json';
+
+export type InputsCatalogItem = {
+  name: string;
+  valueType: ValueType;
+  description?: string;
+  example?: unknown;
+};
+
+export type InputsCatalogV1 = {
+  schemaVersion: 1;
+  globals: InputsCatalogItem[];
+  params: InputsCatalogItem[];
+};
