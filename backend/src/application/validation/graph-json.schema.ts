@@ -48,10 +48,12 @@ export const BLUEPRINT_GRAPH_SCHEMA_V1 = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['key', 'params', 'to'],
+        required: ['key', 'params'],
+        anyOf: [{ required: ['from'] }, { required: ['to'] }],
         properties: {
           key: { type: 'string', minLength: 1 },
           params: { $ref: '#/definitions/inputDefArray' },
+          from: { $ref: '#/definitions/endpoint' },
           to: { $ref: '#/definitions/endpoint' },
         },
       },

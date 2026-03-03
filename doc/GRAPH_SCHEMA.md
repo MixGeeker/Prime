@@ -104,18 +104,20 @@ Compute Engine 触发执行时，job payload 中仍然携带一个 `inputs` obje
   "params": [
     { "name": "productId", "valueType": "String", "required": true }
   ],
-  "to": { "nodeId": "n_start", "port": "in" }
+  "from": { "nodeId": "n_start", "port": "out" }
 }
 ```
 
 字段说明：
 - `key`：入口名称（例如 `main`、`onPriceFix`）。
 - `params`：该入口的强类型入参契约（从 `inputs.params` 读取）。
-- `to`：该入口触发时，从哪个节点的哪个 **exec 输入端口**开始执行。
+- `from`：该入口触发时，从哪个节点的哪个 **exec 输出端口**开始触发执行（UE 风格事件节点）。
+- （兼容）`to`：旧版结构，直接指向 **exec 输入端口**开始执行（已弃用，Editor 会自动迁移到 `from`）。
 
 约束（必须）：
 - `key` 唯一；至少包含 `main`。
-- `to.nodeId` 必须存在；`to.port` 必须是目标节点的 execInputs 之一。
+- `from.nodeId` 必须存在；`from.port` 必须是目标节点的 execOutputs 之一。
+- `from` 指向的节点必须是“入口事件节点”（即 **没有 execInputs**）。
 
 ---
 
@@ -182,6 +184,10 @@ Compute Engine 触发执行时，job payload 中仍然携带一个 `inputs` obje
 ### 6.3.1 内置控制流节点（约定）
 
 > 具体 ports/paramsSchema 以 Node Catalog 为准；这里只列出关键语义，便于 Editor/Provider 对齐心智模型。
+
+#### `flow.start`
+- exec：`(event) -> out`
+- 语义：入口事件节点，没有 exec 输入端口；由 `entrypoints[].from` 指向其 `out` 启动执行。
 
 #### `flow.branch`
 - 输入：`cond:Boolean`
@@ -274,7 +280,7 @@ Compute Engine 触发执行时，job payload 中仍然携带一个 `inputs` obje
 - `globals/entrypoints/locals/nodes/outputs` 唯一性校验。
 - value edges：端口合法性、单入边、类型兼容、**DAG（无环）**。
 - exec edges：端口合法性（允许环）。
-- entrypoints：至少包含 `main`，并且 `to` 指向 exec 输入端口。
+- entrypoints：至少包含 `main`；推荐使用 `from` 指向入口事件节点的 exec 输出端口（兼容旧 `to`）。
 
 ---
 

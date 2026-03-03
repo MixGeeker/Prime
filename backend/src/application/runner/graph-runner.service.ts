@@ -252,7 +252,93 @@ export class GraphRunnerService implements RunnerPort {
       },
     };
 
-    const execStack: GraphEndpoint[] = [entrypoint.to];
+    const execStack: GraphEndpoint[] = [];
+    const entryFrom = entrypoint.from;
+    const entryTo = entrypoint.to;
+
+    if (entryFrom) {
+      const startNode = nodeById.get(entryFrom.nodeId);
+      if (!startNode) {
+        throw new RunnerExecutionError(
+          'RUNNER_DETERMINISTIC_ERROR',
+          `entrypoint.from node not found: ${entryFrom.nodeId}`,
+        );
+      }
+
+      const startDef = this.nodeCatalogService.getNode(startNode.nodeType);
+      if (!startDef) {
+        throw new RunnerExecutionError(
+          'RUNNER_DETERMINISTIC_ERROR',
+          `entrypoint.from node is not in catalog: ${startNode.nodeType}`,
+        );
+      }
+
+      if ((startDef.execInputs ?? []).length > 0) {
+        throw new RunnerExecutionError(
+          'RUNNER_DETERMINISTIC_ERROR',
+          `entrypoint.from must point to a source node (no execInputs): ${startNode.id}`,
+        );
+      }
+
+      const ok = (startDef.execOutputs ?? []).some(
+        (p) => p.name === entryFrom.port,
+      );
+      if (!ok) {
+        throw new RunnerExecutionError(
+          'RUNNER_DETERMINISTIC_ERROR',
+          `entrypoint.from exec output port not found: ${entryFrom.nodeId}.${entryFrom.port}`,
+        );
+      }
+
+      const firstEdge = execEdgeByFromPort.get(
+        `${entryFrom.nodeId}::${entryFrom.port}`,
+      );
+      if (firstEdge) {
+        execStack.push(firstEdge.to);
+      }
+    } else if (entryTo) {
+      // 兼容旧结构：entrypoint.to 指向 exec 输入端口开始执行
+      const startNode = nodeById.get(entryTo.nodeId);
+      if (!startNode) {
+        throw new RunnerExecutionError(
+          'RUNNER_DETERMINISTIC_ERROR',
+          `entrypoint.to node not found: ${entryTo.nodeId}`,
+        );
+      }
+
+      const startDef = this.nodeCatalogService.getNode(startNode.nodeType);
+      if (!startDef) {
+        throw new RunnerExecutionError(
+          'RUNNER_DETERMINISTIC_ERROR',
+          `entrypoint.to node is not in catalog: ${startNode.nodeType}`,
+        );
+      }
+
+      const ok = (startDef.execInputs ?? []).some(
+        (p) => p.name === entryTo.port,
+      );
+      if (ok) {
+        execStack.push(entryTo);
+      } else {
+        // 特例：旧图可能以 flow.start.in 作为入口（现已改为无 execInputs）。
+        if (startNode.nodeType === 'flow.start' && entryTo.port === 'in') {
+          const firstEdge = execEdgeByFromPort.get(`${startNode.id}::out`);
+          if (firstEdge) {
+            execStack.push(firstEdge.to);
+          }
+        } else {
+          throw new RunnerExecutionError(
+            'RUNNER_DETERMINISTIC_ERROR',
+            `entrypoint.to exec input port not found: ${entryTo.nodeId}.${entryTo.port}`,
+          );
+        }
+      }
+    } else {
+      throw new RunnerExecutionError(
+        'RUNNER_DETERMINISTIC_ERROR',
+        `entrypoint must have from or to: ${entrypoint.key}`,
+      );
+    }
     let steps = 0;
 
     while (execStack.length > 0) {

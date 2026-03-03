@@ -7,7 +7,7 @@ export function createEmptyGraph(): GraphJsonV1 {
       {
         key: 'main',
         params: [],
-        to: { nodeId: 'n_start', port: 'in' },
+        from: { nodeId: 'n_start', port: 'out' },
       },
     ],
     locals: [],
@@ -122,17 +122,72 @@ export function migrateGraphIfNeeded(graph: GraphJsonV1): { changed: boolean; no
   const notes: string[] = [];
 
   const anyGraph = graph as any;
-  const outputs: any[] = Array.isArray(anyGraph.outputs) ? anyGraph.outputs : [];
-  const needsMigration = outputs.some((o) => o && typeof o === 'object' && o.from && typeof o.from === 'object');
-  if (!needsMigration) {
-    return { changed: false, notes };
-  }
-
-  notes.push('已自动迁移 outputs：from 绑定 → outputs.set.* 节点（请保存草稿）');
-
   const nodes: any[] = Array.isArray(anyGraph.nodes) ? anyGraph.nodes : [];
   const edges: any[] = Array.isArray(anyGraph.edges) ? anyGraph.edges : [];
   const execEdges: any[] = Array.isArray(anyGraph.execEdges) ? anyGraph.execEdges : [];
+
+  let changed = false;
+
+  // 1) entrypoints：to(exec输入) -> from(exec输出)（必要时插入 flow.start）
+  const entrypoints: any[] = Array.isArray(anyGraph.entrypoints) ? anyGraph.entrypoints : [];
+  const needsEntrypointsMigration = entrypoints.some(
+    (e) => e && typeof e === 'object' && !e.from && e.to && typeof e.to === 'object',
+  );
+  if (needsEntrypointsMigration) {
+    changed = true;
+    notes.push('已自动迁移 entrypoints：to(exec输入) → from(exec输出)+flow.start（请保存草稿）');
+
+    const posMap = getUiNodePositionMap(anyGraph as GraphJsonV1);
+    let insertedStarts = nodes.filter((n) => n?.nodeType === 'flow.start').length;
+
+    for (const ep of entrypoints) {
+      if (!ep || typeof ep !== 'object') continue;
+      if (ep.from) continue;
+      const to = ep.to;
+      if (!to || typeof to !== 'object') continue;
+      if (typeof to.nodeId !== 'string' || typeof to.port !== 'string') continue;
+
+      const targetNode = nodes.find((n) => n?.id === to.nodeId) ?? null;
+      if (targetNode?.nodeType === 'flow.start' && to.port === 'in') {
+        ep.from = { nodeId: to.nodeId, port: 'out' };
+        delete ep.to;
+        continue;
+      }
+
+      const epKey = typeof ep.key === 'string' ? ep.key : 'main';
+      const baseId = `n_start_${safeIdPart(epKey) || 'main'}`;
+      let id = baseId;
+      let i = 2;
+      while (nodes.some((n) => n?.id === id)) {
+        id = `${baseId}_${i}`;
+        i++;
+      }
+
+      nodes.push({ id, nodeType: 'flow.start' });
+
+      const targetPos = posMap[to.nodeId] ?? { x: 320, y: insertedStarts * 90 };
+      setUiNodePosition(anyGraph as GraphJsonV1, id, {
+        x: targetPos.x - 280,
+        y: targetPos.y + insertedStarts * 12,
+      });
+      insertedStarts++;
+
+      execEdges.push({ from: { nodeId: id, port: 'out' }, to: { nodeId: to.nodeId, port: to.port } });
+
+      ep.from = { nodeId: id, port: 'out' };
+      delete ep.to;
+    }
+  }
+
+  // 2) outputs：旧版 outputs.from 绑定 -> outputs.set.* 节点
+  const outputs: any[] = Array.isArray(anyGraph.outputs) ? anyGraph.outputs : [];
+  const needsOutputsMigration = outputs.some((o) => o && typeof o === 'object' && o.from && typeof o.from === 'object');
+  if (!needsOutputsMigration) {
+    return { changed, notes };
+  }
+
+  changed = true;
+  notes.push('已自动迁移 outputs：from 绑定 → outputs.set.* 节点（请保存草稿）');
 
   const returnNode = nodes.find((n) => n?.nodeType === 'flow.return') ?? nodes.find((n) => n?.id === 'n_return') ?? null;
   const startNode = nodes.find((n) => n?.nodeType === 'flow.start') ?? nodes.find((n) => n?.id === 'n_start') ?? null;
@@ -222,5 +277,5 @@ export function migrateGraphIfNeeded(graph: GraphJsonV1): { changed: boolean; no
   anyGraph.edges = edges;
   anyGraph.execEdges = execEdges;
 
-  return { changed: true, notes };
+  return { changed, notes };
 }

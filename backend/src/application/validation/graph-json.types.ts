@@ -46,7 +46,17 @@ export interface GraphEdge {
 export interface GraphEntrypoint {
   key: string;
   params: GraphInputDef[];
-  to: GraphEndpoint; // exec input
+  /**
+   * 推荐：entrypoint 从哪个 exec 输出端口开始触发（UE 风格 Event 节点）。
+   * Runner 会从该端口的 execEdges 继续执行。
+   */
+  from?: GraphEndpoint; // exec output
+
+  /**
+   * 兼容：旧版 entrypoint 直接指向 exec 输入端口开始执行。
+   * 已弃用：请迁移到 from。
+   */
+  to?: GraphEndpoint; // legacy exec input
 }
 
 export interface GraphOutput {

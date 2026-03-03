@@ -11,12 +11,13 @@
           { "name": "taxRate", "valueType": "Ratio", "required": true, "description": "税率(0..1)" },
           { "name": "discountRate", "valueType": "Ratio", "required": true, "description": "折扣(0..1)" }
         ],
-        "to": { "nodeId": "n_start", "port": "in" }
+        "from": { "nodeId": "n_start", "port": "out" }
       }
     ],
     "locals": [],
     "nodes": [
-      { "id": "n_start", "nodeType": "flow.noop" },
+      { "id": "n_start", "nodeType": "flow.start" },
+      { "id": "n_out_finalPrice", "nodeType": "outputs.set.decimal", "params": { "key": "finalPrice" } },
       { "id": "n_return", "nodeType": "flow.return" },
 
       { "id": "n_base", "nodeType": "inputs.params.decimal", "params": { "name": "basePrice" } },
@@ -42,16 +43,17 @@
       { "from": { "nodeId": "n_discountRate", "port": "value" }, "to": { "nodeId": "n_discountFactor", "port": "b" } },
 
       { "from": { "nodeId": "n_priceWithTax", "port": "value" }, "to": { "nodeId": "n_final", "port": "a" } },
-      { "from": { "nodeId": "n_discountFactor", "port": "value" }, "to": { "nodeId": "n_final", "port": "b" } }
+      { "from": { "nodeId": "n_discountFactor", "port": "value" }, "to": { "nodeId": "n_final", "port": "b" } },
+      { "from": { "nodeId": "n_final", "port": "value" }, "to": { "nodeId": "n_out_finalPrice", "port": "value" } }
     ],
     "execEdges": [
-      { "from": { "nodeId": "n_start", "port": "out" }, "to": { "nodeId": "n_return", "port": "in" } }
+      { "from": { "nodeId": "n_start", "port": "out" }, "to": { "nodeId": "n_out_finalPrice", "port": "in" } },
+      { "from": { "nodeId": "n_out_finalPrice", "port": "out" }, "to": { "nodeId": "n_return", "port": "in" } }
     ],
     "outputs": [
       {
         "key": "finalPrice",
         "valueType": "Decimal",
-        "from": { "nodeId": "n_final", "port": "value" },
         "rounding": { "scale": 2, "mode": "HALF_UP" }
       }
     ],
@@ -59,6 +61,7 @@
       "ui": {
         "nodes": {
           "n_start": { "x": 0, "y": 0 },
+          "n_out_finalPrice": { "x": 650, "y": 0 },
           "n_return": { "x": 920, "y": 0 },
 
           "n_base": { "x": -260, "y": -180 },

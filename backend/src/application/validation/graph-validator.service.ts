@@ -79,10 +79,10 @@ export class GraphValidatorService {
     // 6) exec edges：端口合法性（允许环）
     this.validateExecEdges(graph, nodeIndex, issues);
 
-    // 7) entrypoints：必须包含 main；to 必须指向 exec 输入端口
+    // 7) entrypoints：必须包含 main；推荐使用 from 指向 exec 输出端口（入口事件节点）；兼容旧 to 指向 exec 输入端口
     this.validateEntrypoints(graph.entrypoints, nodeIndex, issues);
 
-    // 8) outputs：from 必须合法；rounding 约束
+    // 8) outputs：rounding 约束；并校验 outputs.set.* 覆盖声明 outputs
     this.validateOutputs(graph.outputs, nodeIndex, issues);
 
     return issues;
@@ -620,30 +620,96 @@ export class GraphValidatorService {
 
     for (let i = 0; i < entrypoints.length; i++) {
       const ep = entrypoints[i];
-      const target = nodeIndex.get(ep.to.nodeId);
-      if (!target) {
-        issues.push({
-          code: 'GRAPH_ENTRYPOINT_INVALID',
-          severity: 'error',
-          path: `/entrypoints/${i}/to/nodeId`,
-          message: `entrypoint target node not found: ${ep.to.nodeId}`,
-        });
+      const from = ep.from ?? null;
+      const to = ep.to ?? null;
+
+      if (from) {
+        const target = nodeIndex.get(from.nodeId);
+        if (!target) {
+          issues.push({
+            code: 'GRAPH_ENTRYPOINT_INVALID',
+            severity: 'error',
+            path: `/entrypoints/${i}/from/nodeId`,
+            message: `entrypoint source node not found: ${from.nodeId}`,
+          });
+          continue;
+        }
+        if (!target.nodeDef) {
+          continue;
+        }
+
+        const hasExecInputs = (target.nodeDef.execInputs ?? []).length > 0;
+        if (hasExecInputs) {
+          issues.push({
+            code: 'GRAPH_ENTRYPOINT_INVALID',
+            severity: 'error',
+            path: `/entrypoints/${i}/from`,
+            message: `entrypoint.from must point to a source node (no execInputs): ${from.nodeId}`,
+          });
+        }
+
+        const ok = (target.nodeDef.execOutputs ?? []).some(
+          (p) => p.name === from.port,
+        );
+        if (!ok) {
+          issues.push({
+            code: 'GRAPH_ENTRYPOINT_INVALID',
+            severity: 'error',
+            path: `/entrypoints/${i}/from/port`,
+            message: `entrypoint source exec port not found: ${from.nodeId}.${from.port}`,
+          });
+        }
         continue;
       }
-      if (!target.nodeDef) {
+
+      if (to) {
+        const target = nodeIndex.get(to.nodeId);
+        if (!target) {
+          issues.push({
+            code: 'GRAPH_ENTRYPOINT_INVALID',
+            severity: 'error',
+            path: `/entrypoints/${i}/to/nodeId`,
+            message: `entrypoint target node not found: ${to.nodeId}`,
+          });
+          continue;
+        }
+        if (!target.nodeDef) {
+          continue;
+        }
+
+        issues.push({
+          code: 'GRAPH_ENTRYPOINT_TO_DEPRECATED',
+          severity: 'warning',
+          path: `/entrypoints/${i}/to`,
+          message:
+            'entrypoint.to is deprecated; use entrypoint.from (exec output)',
+        });
+
+        const ok = (target.nodeDef.execInputs ?? []).some(
+          (p) => p.name === to.port,
+        );
+        if (!ok) {
+          // 特例：旧图可能用 flow.start.in 作为入口（现已改为无 execInputs），允许 UI 迁移。
+          const isLegacyStart =
+            target.node.nodeType === 'flow.start' && to.port === 'in';
+          if (!isLegacyStart) {
+            issues.push({
+              code: 'GRAPH_ENTRYPOINT_INVALID',
+              severity: 'error',
+              path: `/entrypoints/${i}/to/port`,
+              message: `entrypoint target exec port not found: ${to.nodeId}.${to.port}`,
+            });
+          }
+        }
         continue;
       }
-      const ok = (target.nodeDef.execInputs ?? []).some(
-        (p) => p.name === ep.to.port,
-      );
-      if (!ok) {
-        issues.push({
-          code: 'GRAPH_ENTRYPOINT_INVALID',
-          severity: 'error',
-          path: `/entrypoints/${i}/to/port`,
-          message: `entrypoint target exec port not found: ${ep.to.nodeId}.${ep.to.port}`,
-        });
-      }
+
+      issues.push({
+        code: 'GRAPH_ENTRYPOINT_INVALID',
+        severity: 'error',
+        path: `/entrypoints/${i}`,
+        message: 'entrypoint must have from or to',
+      });
     }
   }
 

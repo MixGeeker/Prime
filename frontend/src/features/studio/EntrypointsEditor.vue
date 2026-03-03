@@ -3,7 +3,7 @@
     <div class="row" style="margin-bottom: 10px">
       <el-button type="primary" @click="openCreate">新增 entrypoint</el-button>
       <el-button :disabled="!selectedNodeId" @click="setMainToSelected">main 指向选中节点</el-button>
-      <div class="muted">入口决定从哪个 exec 输入端口开始执行，并声明 params（读取自 inputs.params）。</div>
+      <div class="muted">入口决定从哪个 exec 输出端口触发执行（UE 风格事件节点），并声明 params（读取自 inputs.params）。</div>
     </div>
 
     <el-table :data="graph.entrypoints" size="small" height="320px" stripe>
@@ -13,9 +13,12 @@
           <el-tag type="info">{{ row.params?.length ?? 0 }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="to" min-width="220">
+      <el-table-column label="from" min-width="220">
         <template #default="{ row }">
-          <span class="mono muted">{{ row.to?.nodeId }} · {{ row.to?.port }}</span>
+          <span class="mono muted">
+            <template v-if="row.from">{{ row.from?.nodeId }} · {{ row.from?.port }}</template>
+            <template v-else>{{ row.to?.nodeId }} · {{ row.to?.port }} (legacy)</template>
+          </span>
         </template>
       </el-table-column>
       <el-table-column label="操作" width="120" fixed="right">
@@ -36,9 +39,9 @@
           <el-input v-model="form.key" placeholder="例如：main / onPriceFix" />
         </el-form-item>
 
-        <el-form-item label="to.nodeId（起点节点）">
-          <el-select v-model="form.toNodeId" filterable style="width: 100%">
-            <el-option v-for="n in execInputNodeOptions" :key="n.nodeId" :label="n.nodeId" :value="n.nodeId">
+        <el-form-item label="from.nodeId（入口事件节点）">
+          <el-select v-model="form.fromNodeId" filterable style="width: 100%">
+            <el-option v-for="n in execSourceNodeOptions" :key="n.nodeId" :label="n.nodeId" :value="n.nodeId">
               <div class="opt">
                 <div class="opt-title">{{ n.nodeId }}</div>
                 <div class="opt-sub muted">{{ n.nodeType }}</div>
@@ -47,8 +50,8 @@
           </el-select>
         </el-form-item>
 
-        <el-form-item label="to.port（exec 输入端口）">
-          <el-select v-model="form.toPort" style="width: 100%">
+        <el-form-item label="from.port（exec 输出端口）">
+          <el-select v-model="form.fromPort" style="width: 100%">
             <el-option v-for="p in availableExecPorts" :key="p" :label="p" :value="p" />
           </el-select>
         </el-form-item>
@@ -150,23 +153,25 @@ const editingIndex = ref<number | null>(null);
 
 const form = ref<{
   key: string;
-  toNodeId: string;
-  toPort: string;
+  fromNodeId: string;
+  fromPort: string;
   params: GraphInputDef[];
 }>({
   key: 'main',
-  toNodeId: 'n_start',
-  toPort: 'in',
+  fromNodeId: 'n_start',
+  fromPort: 'out',
   params: [],
 });
 
-const execInputNodeOptions = computed(() => {
+const execSourceNodeOptions = computed(() => {
   const catalog = props.catalog;
   if (!catalog) return [];
   const result: Array<{ nodeId: string; nodeType: string; ports: string[] }> = [];
   for (const n of props.graph.nodes) {
     const def = catalog.nodes.find((d) => d.nodeType === n.nodeType);
-    const ports = (def?.execInputs ?? []).map((p) => p.name);
+    const hasExecInputs = (def?.execInputs ?? []).length > 0;
+    if (hasExecInputs) continue;
+    const ports = (def?.execOutputs ?? []).map((p) => p.name);
     if (ports.length === 0) continue;
     result.push({ nodeId: n.id, nodeType: n.nodeType, ports });
   }
@@ -174,7 +179,7 @@ const execInputNodeOptions = computed(() => {
 });
 
 const availableExecPorts = computed(() => {
-  const found = execInputNodeOptions.value.find((x) => x.nodeId === form.value.toNodeId);
+  const found = execSourceNodeOptions.value.find((x) => x.nodeId === form.value.fromNodeId);
   return found?.ports ?? [];
 });
 
@@ -182,8 +187,8 @@ function openCreate() {
   editingIndex.value = null;
   form.value = {
     key: 'main',
-    toNodeId: execInputNodeOptions.value[0]?.nodeId ?? 'n_start',
-    toPort: execInputNodeOptions.value[0]?.ports?.[0] ?? 'in',
+    fromNodeId: execSourceNodeOptions.value[0]?.nodeId ?? 'n_start',
+    fromPort: execSourceNodeOptions.value[0]?.ports?.[0] ?? 'out',
     params: [],
   };
   dialogOpen.value = true;
@@ -193,10 +198,12 @@ function openEdit(index: number) {
   const ep = props.graph.entrypoints[index];
   if (!ep) return;
   editingIndex.value = index;
+  const from = ep.from ?? null;
+  const to = ep.to ?? null;
   form.value = {
     key: ep.key,
-    toNodeId: ep.to.nodeId,
-    toPort: ep.to.port,
+    fromNodeId: from?.nodeId ?? to?.nodeId ?? 'n_start',
+    fromPort: from?.port ?? 'out',
     params: structuredClone(ep.params ?? []),
   };
   dialogOpen.value = true;
@@ -233,19 +240,19 @@ function save() {
     ElMessage.warning('key 不能为空');
     return;
   }
-  if (!form.value.toNodeId) {
-    ElMessage.warning('to.nodeId 不能为空');
+  if (!form.value.fromNodeId) {
+    ElMessage.warning('from.nodeId 不能为空');
     return;
   }
-  if (!form.value.toPort) {
-    ElMessage.warning('to.port 不能为空');
+  if (!form.value.fromPort) {
+    ElMessage.warning('from.port 不能为空');
     return;
   }
 
   const next: GraphEntrypoint = {
     key,
     params: form.value.params,
-    to: { nodeId: form.value.toNodeId, port: form.value.toPort },
+    from: { nodeId: form.value.fromNodeId, port: form.value.fromPort },
   };
 
   if (editingIndex.value === null) {
@@ -265,17 +272,23 @@ function setMainToSelected() {
   const node = props.graph.nodes.find((n) => n.id === nodeId);
   if (!node) return;
   const def = props.catalog.nodes.find((d) => d.nodeType === node.nodeType);
-  const port = def?.execInputs?.[0]?.name;
+  const hasExecInputs = (def?.execInputs ?? []).length > 0;
+  if (hasExecInputs) {
+    ElMessage.warning('选中节点不是入口事件节点（存在 execInputs），请选 flow.start 或其它事件节点');
+    return;
+  }
+  const port = def?.execOutputs?.[0]?.name;
   if (!port) {
-    ElMessage.warning('选中节点没有 execInputs');
+    ElMessage.warning('选中节点没有 execOutputs');
     return;
   }
 
   const main = props.graph.entrypoints.find((e) => e.key === 'main');
   if (!main) {
-    props.graph.entrypoints.push({ key: 'main', params: [], to: { nodeId, port } });
+    props.graph.entrypoints.push({ key: 'main', params: [], from: { nodeId, port } });
   } else {
-    main.to = { nodeId, port };
+    main.from = { nodeId, port };
+    delete (main as any).to;
   }
   emit('dirty');
   ElMessage.success('已更新 main 入口');
