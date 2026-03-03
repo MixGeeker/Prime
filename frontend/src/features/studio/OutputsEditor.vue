@@ -1,9 +1,20 @@
 <template>
   <div>
     <div class="row" style="margin-bottom: 10px">
-      <el-button type="primary" @click="openCreate">新增 output</el-button>
+      <el-button type="primary" :disabled="outputPortOptions.length === 0" @click="openCreate">
+        新增 output
+      </el-button>
       <div class="muted">outputs 声明会参与 outputsHash，并可选择 rounding。</div>
     </div>
+
+    <el-alert
+      v-if="outputPortOptions.length === 0"
+      type="info"
+      show-icon
+      title="当前画布没有可用于 output 的 value 输出端口"
+      description="output 的 from 只能选择「已放到画布上的节点」的 value 输出端口（不会直接显示节点库）。请先在左侧节点库添加一个会产生 value 的节点（例如：core.const / inputs.* / locals.* / math.*），再回来新增 output。"
+      style="margin-bottom: 10px"
+    />
 
     <el-table :data="graph.outputs" size="small" height="320px" stripe>
       <el-table-column prop="key" label="key" width="180" />
@@ -36,7 +47,14 @@
         </el-form-item>
 
         <el-form-item label="from（选择一个 value 输出端口）">
-          <el-select v-model="form.fromId" filterable style="width: 100%">
+          <el-select
+            v-model="form.fromId"
+            filterable
+            style="width: 100%"
+            :disabled="outputPortOptions.length === 0"
+            placeholder="请先在画布添加一个产生 value 的节点"
+            no-data-text="画布上暂无 value 输出端口"
+          >
             <el-option
               v-for="o in outputPortOptions"
               :key="o.id"
@@ -244,4 +262,3 @@ function save() {
   font-size: 12px;
 }
 </style>
-
