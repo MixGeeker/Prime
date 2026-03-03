@@ -564,6 +564,11 @@ export class MqWorkerService implements OnModuleInit, OnModuleDestroy {
       try {
         const now = new Date();
         const staleLockedBefore = new Date(now.getTime() - params.leaseMs);
+        if (!Number.isFinite(staleLockedBefore.getTime())) {
+          throw new Error(
+            `Invalid staleLockedBefore: leaseMs=${String(params.leaseMs)} (${typeof params.leaseMs})`,
+          );
+        }
 
         const batch = await this.outboxRepository.leaseNextBatch({
           batchSize: params.batchSize,
@@ -590,7 +595,11 @@ export class MqWorkerService implements OnModuleInit, OnModuleDestroy {
           );
         }
       } catch (error) {
-        this.logger.error(`Outbox dispatcher loop error: ${String(error)}`);
+        const stack = error instanceof Error ? error.stack : undefined;
+        this.logger.error(
+          `Outbox dispatcher loop error: ${String(error)}`,
+          stack,
+        );
         await sleep(params.pollIntervalMs);
       }
     }
@@ -647,15 +656,27 @@ export class MqWorkerService implements OnModuleInit, OnModuleDestroy {
       this.metricsService.observeOutboxPublishDuration(durationSeconds);
 
       const errorText = stringifyError(error);
-      const nextAttempt = record.attempts + 1;
+      const currentAttempts = Number(record.attempts);
+      const nextAttempt =
+        (Number.isFinite(currentAttempts) ? currentAttempts : 0) + 1;
+      const safeMaxAttempts = (() => {
+        const parsed = Number(maxAttempts);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : 25;
+      })();
 
-      const nextRetryAt =
-        nextAttempt >= maxAttempts
+      let nextRetryAt =
+        nextAttempt >= safeMaxAttempts
           ? new Date(now.getTime() + 24 * 60 * 60 * 1000)
           : new Date(now.getTime() + computeBackoffMs(nextAttempt));
+      if (!Number.isFinite(nextRetryAt.getTime())) {
+        nextRetryAt = new Date(now.getTime() + 60_000);
+      }
+      const nextRetryAtIso = Number.isFinite(nextRetryAt.getTime())
+        ? nextRetryAt.toISOString()
+        : 'InvalidDate';
 
       this.logger.warn(
-        `Outbox publish failed: id=${record.id} attempt=${nextAttempt}/${maxAttempts} nextRetryAt=${nextRetryAt.toISOString()} error=${errorText}`,
+        `Outbox publish failed: id=${record.id} attempt=${nextAttempt}/${safeMaxAttempts} nextRetryAt=${nextRetryAtIso} error=${errorText}`,
       );
 
       await this.outboxRepository.markFailedAndScheduleRetry({
@@ -767,7 +788,9 @@ function stringifyError(error: unknown): string {
 }
 
 function computeBackoffMs(attempt: number): number {
-  const safeAttempt = attempt <= 0 ? 1 : attempt;
+  const numericAttempt = Number(attempt);
+  const safeAttempt =
+    Number.isFinite(numericAttempt) && numericAttempt > 0 ? numericAttempt : 1;
   const base = 500;
   const cap = 60_000;
   const exp = Math.min(safeAttempt, 16);

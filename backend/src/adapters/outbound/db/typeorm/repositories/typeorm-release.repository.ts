@@ -5,6 +5,7 @@ import type {
 } from '../../../../../application/ports/definition-release-repository.port';
 import type { DefinitionRelease } from '../../../../../domain/definition/definition';
 import { DefinitionReleaseEntity } from '../entities/definition-release.entity';
+import { unwrapReturningRows } from './typeorm-query-result';
 
 /**
  * ReleaseRepo 的 TypeORM 实现（PostgreSQL）。
@@ -137,7 +138,8 @@ export class TypeOrmReleaseRepository implements DefinitionReleaseRepositoryPort
       ],
     );
 
-    if (!Array.isArray(updateResult) || updateResult.length === 0) {
+    const rows = unwrapReturningRows<{ definition_hash: string }>(updateResult);
+    if (rows.length === 0) {
       return null;
     }
 

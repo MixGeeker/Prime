@@ -8,6 +8,7 @@ import type {
 } from '../../../../../application/ports/job-repository.port';
 import type { JobRecord, NewJobRequested } from '../../../../../domain/job/job';
 import { JobEntity } from '../entities/job.entity';
+import { unwrapReturningRows } from './typeorm-query-result';
 
 /**
  * JobRepo 的 TypeORM 实现（PostgreSQL）。
@@ -295,7 +296,7 @@ export class TypeOrmJobRepository implements JobRepositoryPort {
     cutoff: Date;
     limit: number;
   }): Promise<number> {
-    const rows: unknown = await this.manager.query(
+    const queryResult: unknown = await this.manager.query(
       `
         WITH candidates AS (
           SELECT job_id
@@ -321,6 +322,7 @@ export class TypeOrmJobRepository implements JobRepositoryPort {
       `,
       [params.cutoff, params.limit],
     );
-    return Array.isArray(rows) ? rows.length : 0;
+    const rows = unwrapReturningRows<{ job_id: string }>(queryResult);
+    return rows.length;
   }
 }

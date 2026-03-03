@@ -3,6 +3,7 @@ import type { UpsertDefinitionDraftParams } from '../../../../../application/por
 import type { DefinitionDraft } from '../../../../../domain/definition/definition';
 import { EntityManager } from 'typeorm';
 import { DefinitionDraftEntity } from '../entities/definition-draft.entity';
+import { unwrapReturningRows } from './typeorm-query-result';
 
 /**
  * DraftRepo 的 TypeORM 实现（PostgreSQL）。
@@ -92,7 +93,7 @@ export class TypeOrmDraftRepository implements DefinitionDraftRepositoryPort {
     cutoff: Date;
     limit: number;
   }): Promise<number> {
-    const rows: unknown = await this.manager.query(
+    const queryResult: unknown = await this.manager.query(
       `
         WITH candidates AS (
           SELECT definition_id
@@ -108,6 +109,7 @@ export class TypeOrmDraftRepository implements DefinitionDraftRepositoryPort {
       `,
       [params.cutoff, params.limit],
     );
-    return Array.isArray(rows) ? rows.length : 0;
+    const rows = unwrapReturningRows<{ definition_id: string }>(queryResult);
+    return rows.length;
   }
 }

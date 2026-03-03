@@ -5,6 +5,7 @@ import type {
   OutboxRecord,
 } from '../../../../../domain/outbox/outbox';
 import { OutboxEntity } from '../entities/outbox.entity';
+import { unwrapReturningRows } from './typeorm-query-result';
 
 /**
  * OutboxRepo 的 TypeORM 实现（PostgreSQL）。
@@ -89,7 +90,7 @@ export class TypeOrmOutboxRepository implements OutboxRepositoryPort {
     cutoff: Date;
     limit: number;
   }): Promise<number> {
-    const rows: unknown = await this.manager.query(
+    const queryResult: unknown = await this.manager.query(
       `
         WITH candidates AS (
           SELECT id
@@ -106,7 +107,8 @@ export class TypeOrmOutboxRepository implements OutboxRepositoryPort {
       `,
       [params.cutoff, params.limit],
     );
-    return Array.isArray(rows) ? rows.length : 0;
+    const rows = unwrapReturningRows<{ id: string }>(queryResult);
+    return rows.length;
   }
 
   async leaseNextBatch(params: {
@@ -116,7 +118,7 @@ export class TypeOrmOutboxRepository implements OutboxRepositoryPort {
     staleLockedBefore: Date;
     maxAttempts: number;
   }): Promise<OutboxRecord[]> {
-    const rows: unknown = await this.manager.query(
+    const queryResult: unknown = await this.manager.query(
       `
         WITH candidates AS (
           SELECT id
@@ -160,14 +162,9 @@ export class TypeOrmOutboxRepository implements OutboxRepositoryPort {
       ],
     );
 
-    if (!Array.isArray(rows)) {
-      return [];
-    }
+    const rows = unwrapReturningRows<OutboxEntity>(queryResult);
 
-    return rows.map((row) => {
-      const mapped = row as unknown as OutboxEntity;
-      return mapOutbox(mapped);
-    });
+    return rows.map((row) => mapOutbox(row));
   }
 
   async markSent(params: { id: string; lockedBy: string; now: Date }) {
