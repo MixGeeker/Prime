@@ -10,7 +10,7 @@
 - 支撑运行：MQ 接收 `compute.job.requested.v1`，发布 `compute.job.succeeded.v1 / failed.v1`。
 
 ### 1.2 非目标
-- 不提供官方 Editor UI。
+- 不内置/不依赖官方生产级 Editor UI（仓库仅提供参考实现用于对齐契约）。
 - 不提供 Inputs Provider 的运行时接口（Provider 是集成方实现）。
 
 ---
@@ -82,6 +82,42 @@
 ## 3. HTTP Admin API（供 Editor / 运维使用）
 
 > 约定：所有响应都包含 `requestId`（可选）用于排障；所有写操作需要鉴权（实现方式由部署侧决定）。
+
+### 3.0 列表/运维查询（供 Ops / UI 使用）
+
+#### `GET /admin/definitions`
+列出 definitions（含 draft/最新发布物指针）。
+- query：
+  - `q?`: string（按 definitionId 模糊搜索）
+  - `limit?`: number（1..200，默认 50）
+  - `cursor?`: string（base64url；用于游标分页）
+- response：
+  - `items: Array<{ definitionId, createdAt, updatedAt, latestDefinitionHash?, latestStatus?, latestPublishedAt?, draftRevisionId?, draftUpdatedAt? }>`
+  - `nextCursor?: string | null`
+
+#### `GET /admin/jobs`
+列出 jobs（摘要字段，不返回大字段快照）。
+- query：
+  - `status?`: `'requested' | 'running' | 'succeeded' | 'failed'`
+  - `definitionId?`: string
+  - `definitionHashUsed?`: string
+  - `since?`: string（ISO；requestedAt >= since）
+  - `until?`: string（ISO；requestedAt < until）
+  - `limit?`: number（1..200，默认 50）
+  - `cursor?`: string（base64url；用于游标分页）
+- response：
+  - `items: Array<{ jobId, definitionId, definitionHashUsed, status, requestedAt, computedAt?, failedAt?, errorCode?, errorMessage? }>`
+  - `nextCursor?: string | null`
+
+#### `GET /admin/ops/stats`
+仪表盘统计（outbox backlog + job 状态聚合）。
+- query：
+  - `jobsSinceHours?`: number（默认 24；0 表示不过滤）
+- response：
+  - `now`: string（ISO）
+  - `outbox`: `{ pending: number, failed: number }`
+  - `jobs`: `{ requested: number, running: number, succeeded: number, failed: number }`
+  - `window`: `{ jobsSinceHours: number }`
 
 ### 3.1 Definition Draft
 

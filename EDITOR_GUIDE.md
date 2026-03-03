@@ -1,6 +1,12 @@
 # Editor 文档（集成方自定义实现）
 
-> Editor（Definition Studio / Editor）由集成方/业务方自行实现。Compute Engine 不提供官方 UI，只提供后端标准与能力（Admin API + Node Catalog + validate/dry-run）。
+> Editor（Definition Studio / Editor）最终仍建议由集成方/业务方按自身 UX/权限/审计要求实现。
+>
+> 本仓库同时提供一个 **可运行的参考实现**：`./frontend/`（Studio + Ops），用于端到端演示与对齐契约（Admin API + Node Catalog + validate/dry-run/publish）。
+>
+> 参考实现设计说明：
+> - `frontend/docs/EDITOR_SAMPLE_DESIGN.md`
+> - `frontend/docs/OPS_DASHBOARD_DESIGN.md`
 
 ## 1. Editor 的目标
 - 可视化创建 Definition（`contentType=graph_json` 的 BlueprintGraph）。

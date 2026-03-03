@@ -5,7 +5,7 @@
 
 ## 0. 范围与假设
 
-- 范围：只覆盖 **Compute Engine 后端服务**（不含 Provider/Editor 的实现，只规定对接契约）。
+- 范围：只覆盖 **Compute Engine 后端服务**（Provider/Editor 的实现不作为后端里程碑 DoD；但本仓库提供 `frontend/` 与 `providers/examples/provider-simulator/` 作为参考实现与联调样例）。
 - 当前假设：单租户（不含 `tenantId`）。
 - 事件系统：默认 RabbitMQ（但内部通过 `MessageBusPort` 抽象，方便未来替换）。
 - 幂等键：以 `jobId` 为准（必须写死）。
@@ -26,7 +26,7 @@
 
 > 建议用 2 周为一个迭代单位；下面按“可独立验收”的里程碑拆分。你们也可以按团队节奏合并/拆分。
 
-### 当前进度快照（截至 2026-03-02）
+### 当前进度快照（截至 2026-03-03）
 
 - M0：已完成（5/5）
 - M1：已完成（4/4）

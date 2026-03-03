@@ -14,6 +14,13 @@
 - 不做图执行与确定性计算（由 Compute Engine 做）。
 - 不直接写入业务价格结果（结果落地由业务模块消费 `job.succeeded/failed` 决定）。
 
+### 1.3 仓库内的参考实现（可运行）
+- Provider Simulator：`providers/examples/provider-simulator/`
+  - 管理 `inputs.globals`（全局 facts）
+  - 触发 `compute.job.requested.v1`（MQ）
+  - 订阅结果事件并落地（便于 Ops 面板展示）
+- 业务样例蓝图：`providers/examples/tax-discount/`
+
 ---
 
 ## 2. 标准 inputs 结构（强烈建议）

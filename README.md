@@ -5,8 +5,8 @@
 ## 目录结构
 
 - `./backend/`：Compute Engine 后端（NestJS + TypeORM）
-- `./frontend/`：Definition Studio / Editor（占位，后续实现）
-- `./providers/`：Compute Inputs Provider（规范 + 示例）
+- `./frontend/`：**示例前端**（Studio 编辑器 + Ops 仪表盘；Vue3 + Element Plus + Rete）
+- `./providers/`：Compute Inputs Provider（规范 + 示例：Provider Simulator + 业务样例）
 - `./*.md`：设计/规范文档（见下方“文档索引”）
 
 ## 快速开始（后端）
@@ -23,6 +23,14 @@ npm run start:dev
 - Health：`GET /health`
 - Ready：`GET /ready`
 - Swagger UI：`GET /docs`
+
+## 快速开始（端到端示例）
+
+1) 启动后端 HTTP + Worker（见 `backend/README.md`）
+2) 启动 Provider Simulator：`providers/examples/provider-simulator/`
+3) 启动前端：`frontend/`
+
+> 端到端演示会走 MQ：Provider Simulator 投递 `compute.job.requested.v1` → Worker 执行 → Outbox 发布结果事件 → Provider Simulator 订阅并展示。
 
 ## 文档索引
 

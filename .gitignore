@@ -22,3 +22,6 @@ pnpm-debug.log*
 **/coverage
 **/*.tsbuildinfo
 
+# Runtime data (examples)
+providers/examples/provider-simulator/data
+
