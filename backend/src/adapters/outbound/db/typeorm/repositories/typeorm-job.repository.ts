@@ -24,8 +24,7 @@ function mapJob(row: JobEntity): JobRecord {
     messageId: row.messageId ?? null,
     correlationId: row.correlationId ?? null,
     definitionId: row.definitionId,
-    versionUsed: row.versionUsed,
-    definitionHash: row.definitionHash ?? null,
+    definitionHashUsed: row.definitionHashUsed,
     inputsHash: row.inputsHash ?? null,
     outputsHash: row.outputsHash ?? null,
     status: row.status as JobRecord['status'],
@@ -61,7 +60,7 @@ export class TypeOrmJobRepository implements JobRepositoryPort {
           message_id,
           correlation_id,
           definition_id,
-          version_used,
+          definition_hash_used,
           status
         )
         VALUES ($1, $2, $3, $4, $5, $6, 'requested')
@@ -74,7 +73,7 @@ export class TypeOrmJobRepository implements JobRepositoryPort {
         params.messageId,
         params.correlationId,
         params.definitionId,
-        params.versionUsed,
+        params.definitionHashUsed,
       ],
     );
 
@@ -91,5 +90,114 @@ export class TypeOrmJobRepository implements JobRepositoryPort {
     // insertedRows 非空表示本次确实插入成功；为空表示重复投递（duplicate）。
     const inserted = isUnknownArray(insertedRows) && insertedRows.length > 0;
     return { kind: inserted ? 'inserted' : 'duplicate', job: existing };
+  }
+
+  async markRunning(jobId: string): Promise<void> {
+    await this.manager.query(
+      `
+        UPDATE jobs
+        SET status = 'running'
+        WHERE job_id = $1
+      `,
+      [jobId],
+    );
+  }
+
+  async markSucceeded(params: {
+    jobId: string;
+    inputsHash: string;
+    outputsHash: string;
+    outputs: Record<string, unknown>;
+    computedAt: Date;
+    inputsSnapshot?: Record<string, unknown> | null;
+  }): Promise<void> {
+    await this.manager.query(
+      `
+        UPDATE jobs
+        SET
+          status = 'succeeded',
+          inputs_hash = $2,
+          outputs_hash = $3,
+          computed_at = $4,
+          failed_at = NULL,
+          inputs_snapshot_json = $5,
+          outputs_json = $6,
+          error_code = NULL,
+          error_message = NULL
+        WHERE job_id = $1
+      `,
+      [
+        params.jobId,
+        params.inputsHash,
+        params.outputsHash,
+        params.computedAt,
+        params.inputsSnapshot ?? null,
+        params.outputs,
+      ],
+    );
+  }
+
+  async markFailed(params: {
+    jobId: string;
+    inputsHash: string | null;
+    errorCode: string;
+    errorMessage: string;
+    failedAt: Date;
+  }): Promise<void> {
+    await this.manager.query(
+      `
+        UPDATE jobs
+        SET
+          status = 'failed',
+          inputs_hash = $2,
+          outputs_hash = NULL,
+          outputs_json = NULL,
+          computed_at = NULL,
+          failed_at = $5,
+          error_code = $3,
+          error_message = $4
+        WHERE job_id = $1
+      `,
+      [
+        params.jobId,
+        params.inputsHash,
+        params.errorCode,
+        params.errorMessage,
+        params.failedAt,
+      ],
+    );
+  }
+
+  async clearSnapshotsOlderThan(params: {
+    cutoff: Date;
+    limit: number;
+  }): Promise<number> {
+    const rows: unknown = await this.manager.query(
+      `
+        WITH candidates AS (
+          SELECT job_id
+          FROM jobs
+          WHERE (
+              (computed_at IS NOT NULL AND computed_at < $1)
+              OR (failed_at IS NOT NULL AND failed_at < $1)
+            )
+            AND (
+              inputs_snapshot_json IS NOT NULL
+              OR outputs_json IS NOT NULL
+            )
+          ORDER BY COALESCE(computed_at, failed_at) ASC
+          LIMIT $2
+        )
+        UPDATE jobs j
+        SET
+          inputs_snapshot_json = NULL,
+          outputs_json = NULL
+        FROM candidates c
+        WHERE j.job_id = c.job_id
+        RETURNING j.job_id
+      `,
+      [params.cutoff, params.limit],
+    );
+    return Array.isArray(rows) ? rows.length : 0;
   }
 }

@@ -1,3 +1,6 @@
+/**
+ * GetJob 用例：按 jobId 查询执行状态/结果（运维排障）。
+ */
 import { Inject, Injectable } from '@nestjs/common';
 import {
   JOB_REPOSITORY,
@@ -23,9 +26,8 @@ export class GetJobUseCase {
       status: job.status,
       definitionRefUsed: {
         definitionId: job.definitionId,
-        version: job.versionUsed,
+        definitionHash: job.definitionHashUsed,
       },
-      definitionHash: job.definitionHash,
       inputsHash: job.inputsHash,
       outputs: job.outputs,
       outputsHash: job.outputsHash,

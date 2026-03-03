@@ -1,13 +1,31 @@
+/**
+ * BlueprintGraph Runner（控制流解释器）。
+ *
+ * 核心语义：
+ * - execEdges 驱动执行（允许环）；value edges 按需惰性求值（必须 DAG）
+ * - locals 提供图内可变状态；当 locals.set 发生时会清空纯节点缓存
+ * - impure 节点（含 exec ports）必须先执行后才能读取其 value 输出
+ * - 支持 continue_many（用于 `flow.sequence` 等“一进多出”的确定性顺序调度）
+ *
+ * 子蓝图调用：
+ * - Runner 本身不做 DB/HTTP 等 IO
+ * - `flow.call_definition` 通过 runtime.callDefinition 调用子图
+ * - 被调用方内容必须提前通过 `definitionBundle` 注入
+ */
 import { Injectable } from '@nestjs/common';
+import Decimal from 'decimal.js';
 import { NodeCatalogService } from '../catalog/node-catalog.service';
-import type { ValueType } from '../catalog/node-catalog.types';
+import type { NodeDef, ValueType } from '../catalog/node-catalog.types';
+import { getNodeImplementationV1 } from '../nodes/v1/registry';
 import type {
   RunnerPort,
+  RunnerDefinitionBundleItem,
   RunnerRunParams,
   RunnerRunResult,
 } from '../ports/runner.port';
 import type {
   GraphEdge,
+  GraphEndpoint,
   GraphJsonV1,
   GraphNode,
   RoundingMode,
@@ -16,13 +34,60 @@ import {
   canonicalizeValueByType,
   isPlainObject,
 } from '../hashing/canonicalize';
+import {
+  getRoundingMode,
+  toDecimal,
+  toDecimalRounding,
+} from '../nodes/shared/decimal-runtime';
 import { RunnerExecutionError } from './runner.error';
+import type { RunnerRuntimeContext } from '../nodes/node-implementation.types';
 
 @Injectable()
 export class GraphRunnerService implements RunnerPort {
   constructor(private readonly nodeCatalogService: NodeCatalogService) {}
 
   run(params: RunnerRunParams): RunnerRunResult {
+    const definitionBundleMap = new Map<string, RunnerDefinitionBundleItem>();
+    for (const item of params.definitionBundle ?? []) {
+      const key = `${item.definitionId}@${item.definitionHash}`;
+      if (definitionBundleMap.has(key)) {
+        throw new RunnerExecutionError(
+          'RUNNER_DETERMINISTIC_ERROR',
+          `duplicate definition in bundle: ${key}`,
+        );
+      }
+      definitionBundleMap.set(key, item);
+    }
+
+    const rootLimits = readRunnerLimits(
+      deepMerge(params.runnerConfig ?? {}, params.options ?? {}),
+    );
+
+    return this.runInternal({
+      content: params.content,
+      entrypointKey: params.entrypointKey,
+      inputs: params.inputs,
+      runnerConfig: params.runnerConfig,
+      options: params.options,
+      definitionBundleMap,
+      callDepth: 0,
+      maxCallDepth: rootLimits.maxCallDepth,
+    });
+  }
+
+  private runInternal(params: {
+    content: Record<string, unknown>;
+    entrypointKey?: string;
+    inputs: {
+      globals: Record<string, unknown>;
+      params: Record<string, unknown>;
+    };
+    runnerConfig?: Record<string, unknown> | null;
+    options?: Record<string, unknown> | null;
+    definitionBundleMap: Map<string, RunnerDefinitionBundleItem>;
+    callDepth: number;
+    maxCallDepth: number;
+  }): RunnerRunResult {
     const graph = params.content as unknown as GraphJsonV1;
 
     const effectiveRunnerConfig = deepMerge(
@@ -30,6 +95,7 @@ export class GraphRunnerService implements RunnerPort {
       params.options ?? {},
     );
     const limits = readRunnerLimits(effectiveRunnerConfig);
+    const DecimalCtor = buildDecimalCtor(effectiveRunnerConfig);
 
     if (graph.nodes.length > limits.maxNodes) {
       throw new RunnerExecutionError(
@@ -38,7 +104,7 @@ export class GraphRunnerService implements RunnerPort {
       );
     }
 
-    const { sortedNodeIds, maxDepth } = topologicalSortWithDepth(graph);
+    const { maxDepth } = topologicalSortWithDepth(graph);
     if (maxDepth > limits.maxDepth) {
       throw new RunnerExecutionError(
         'RUNNER_DETERMINISTIC_ERROR',
@@ -47,94 +113,240 @@ export class GraphRunnerService implements RunnerPort {
     }
 
     const startedAt = Date.now();
-    const incomingEdgeByPort = new Map<string, GraphEdge>();
-    const outgoingByNode = new Map<string, GraphEdge[]>();
-    for (const node of graph.nodes) {
-      outgoingByNode.set(node.id, []);
-    }
-    for (const edge of graph.edges) {
-      incomingEdgeByPort.set(`${edge.to.nodeId}::${edge.to.port}`, edge);
-      const outgoing = outgoingByNode.get(edge.from.nodeId);
-      if (outgoing) {
-        outgoing.push(edge);
-      }
-    }
 
     const nodeById = new Map<string, GraphNode>();
     for (const node of graph.nodes) {
       nodeById.set(node.id, node);
     }
 
-    const nodeOutputs = new Map<string, Record<string, unknown>>();
-    for (const nodeId of sortedNodeIds) {
-      ensureTimeout(startedAt, limits.timeoutMs);
+    const incomingValueEdgeByPort = new Map<string, GraphEdge>();
+    for (const edge of graph.edges) {
+      incomingValueEdgeByPort.set(`${edge.to.nodeId}::${edge.to.port}`, edge);
+    }
 
-      const node = nodeById.get(nodeId);
+    const execEdgeByFromPort = new Map<string, GraphEdge>();
+    for (const edge of graph.execEdges) {
+      const key = `${edge.from.nodeId}::${edge.from.port}`;
+      if (execEdgeByFromPort.has(key)) {
+        throw new RunnerExecutionError(
+          'RUNNER_DETERMINISTIC_ERROR',
+          `exec output has multiple outgoing edges: ${key}`,
+        );
+      }
+      execEdgeByFromPort.set(key, edge);
+    }
+
+    const localsByName = new Map<string, unknown>();
+    for (const local of graph.locals) {
+      const hasDefault = Object.prototype.hasOwnProperty.call(local, 'default');
+      const defaultValue = hasDefault
+        ? (local as { default?: unknown }).default
+        : null;
+
+      if (defaultValue === null || defaultValue === undefined) {
+        localsByName.set(local.name, null);
+        continue;
+      }
+
+      const canonicalized = canonicalizeValueByType(
+        local.valueType,
+        defaultValue,
+      );
+      if (!canonicalized.ok) {
+        throw new RunnerExecutionError(
+          'RUNNER_DETERMINISTIC_ERROR',
+          `invalid local default for ${local.name}: ${canonicalized.message}`,
+        );
+      }
+      localsByName.set(local.name, canonicalized.value);
+    }
+
+    const pureOutputsCacheByNodeId = new Map<string, Record<string, unknown>>();
+    const impureOutputsByNodeId = new Map<string, Record<string, unknown>>();
+
+    const runtime: RunnerRuntimeContext = {
+      globals: params.inputs.globals,
+      params: params.inputs.params,
+      getLocal: (name) => {
+        if (!localsByName.has(name)) {
+          throw new RunnerExecutionError(
+            'RUNNER_DETERMINISTIC_ERROR',
+            `local is not declared: ${name}`,
+          );
+        }
+        return localsByName.get(name);
+      },
+      setLocal: (name, value) => {
+        if (!localsByName.has(name)) {
+          throw new RunnerExecutionError(
+            'RUNNER_DETERMINISTIC_ERROR',
+            `local is not declared: ${name}`,
+          );
+        }
+        localsByName.set(name, value);
+        pureOutputsCacheByNodeId.clear();
+      },
+      callDefinition: (call) => {
+        if (params.callDepth + 1 > params.maxCallDepth) {
+          throw new RunnerExecutionError(
+            'RUNNER_DETERMINISTIC_ERROR',
+            `call depth exceeds maxCallDepth: ${params.callDepth + 1} > ${params.maxCallDepth}`,
+          );
+        }
+
+        const key = `${call.definitionId}@${call.definitionHash}`;
+        const callee = params.definitionBundleMap.get(key);
+        if (!callee) {
+          throw new RunnerExecutionError(
+            'RUNNER_DETERMINISTIC_ERROR',
+            `callee definition not found in bundle: ${key}`,
+          );
+        }
+
+        return this.runInternal({
+          content: callee.content,
+          entrypointKey: call.entrypointKey,
+          inputs: call.inputs,
+          runnerConfig: callee.runnerConfig ?? null,
+          options: params.options ?? null,
+          definitionBundleMap: params.definitionBundleMap,
+          callDepth: params.callDepth + 1,
+          maxCallDepth: params.maxCallDepth,
+        });
+      },
+    };
+
+    const entrypointKey =
+      typeof params.entrypointKey === 'string' && params.entrypointKey.length > 0
+        ? params.entrypointKey
+        : 'main';
+    const entrypoint = graph.entrypoints.find((ep) => ep.key === entrypointKey);
+    if (!entrypoint) {
+      throw new RunnerExecutionError(
+        'RUNNER_DETERMINISTIC_ERROR',
+        `entrypoint not found: ${entrypointKey}`,
+      );
+    }
+
+    const execStack: GraphEndpoint[] = [entrypoint.to];
+    let steps = 0;
+
+    while (execStack.length > 0) {
+      const currentExec = execStack.pop();
+      if (!currentExec) {
+        break;
+      }
+      ensureTimeout(startedAt, limits.timeoutMs);
+      steps++;
+      if (steps > limits.maxSteps) {
+        throw new RunnerExecutionError(
+          'RUNNER_DETERMINISTIC_ERROR',
+          `exec steps exceeds maxSteps: ${steps} > ${limits.maxSteps}`,
+        );
+      }
+
+      const node = nodeById.get(currentExec.nodeId);
       if (!node) {
         throw new RunnerExecutionError(
           'RUNNER_DETERMINISTIC_ERROR',
-          `node not found: ${nodeId}`,
+          `node not found: ${currentExec.nodeId}`,
         );
       }
 
-      const nodeDef = this.nodeCatalogService.getNode(
-        node.nodeType,
-        node.nodeVersion,
-      );
+      const nodeDef = this.nodeCatalogService.getNode(node.nodeType);
       if (!nodeDef) {
         throw new RunnerExecutionError(
           'RUNNER_DETERMINISTIC_ERROR',
-          `node is not in catalog: ${node.nodeType}@${node.nodeVersion}`,
+          `node is not in catalog: ${node.nodeType}`,
         );
       }
 
-      const inputValues: Record<string, unknown> = {};
-      for (const inputPort of nodeDef.inputs) {
-        const incomingEdge = incomingEdgeByPort.get(
-          `${node.id}::${inputPort.name}`,
+      const execInputs = nodeDef.execInputs ?? [];
+      if (!execInputs.some((p) => p.name === currentExec.port)) {
+        throw new RunnerExecutionError(
+          'RUNNER_DETERMINISTIC_ERROR',
+          `exec input port not found: ${node.id}.${currentExec.port}`,
         );
-        if (!incomingEdge) {
-          throw new RunnerExecutionError(
-            'RUNNER_DETERMINISTIC_ERROR',
-            `missing edge for ${node.id}.${inputPort.name}`,
-          );
-        }
-        const sourceOutputs = nodeOutputs.get(incomingEdge.from.nodeId);
-        if (!sourceOutputs) {
-          throw new RunnerExecutionError(
-            'RUNNER_DETERMINISTIC_ERROR',
-            `source node is not computed: ${incomingEdge.from.nodeId}`,
-          );
-        }
-        if (
-          !Object.prototype.hasOwnProperty.call(
-            sourceOutputs,
-            incomingEdge.from.port,
-          )
-        ) {
-          throw new RunnerExecutionError(
-            'RUNNER_DETERMINISTIC_ERROR',
-            `source port not found: ${incomingEdge.from.nodeId}.${incomingEdge.from.port}`,
-          );
-        }
-        inputValues[inputPort.name] = sourceOutputs[incomingEdge.from.port];
       }
 
-      const currentOutputs = evaluateNode(
+      const impl = getNodeImplementationV1(node.nodeType);
+      if (!impl) {
+        throw new RunnerExecutionError(
+          'RUNNER_DETERMINISTIC_ERROR',
+          `unsupported node type: ${node.nodeType}`,
+        );
+      }
+
+      const inputValues = this.buildInputValues({
         node,
-        inputValues,
-        params.variableValues,
-      );
-      nodeOutputs.set(node.id, currentOutputs);
+        nodeDef,
+        nodeById,
+        incomingValueEdgeByPort,
+        pureOutputsCacheByNodeId,
+        impureOutputsByNodeId,
+        startedAt,
+        timeoutMs: limits.timeoutMs,
+        runtime,
+        DecimalCtor,
+      });
 
-      const outgoingEdges = outgoingByNode.get(node.id) ?? [];
-      for (const edge of outgoingEdges) {
-        if (!nodeById.has(edge.to.nodeId)) {
-          throw new RunnerExecutionError(
-            'RUNNER_DETERMINISTIC_ERROR',
-            `target node not found: ${edge.to.nodeId}`,
-          );
+      const valueOutputs = impl.evaluate({
+        node,
+        def: nodeDef,
+        inputs: inputValues,
+        runtime,
+        DecimalCtor,
+      });
+
+      if (nodeDef.outputs.length > 0) {
+        impureOutputsByNodeId.set(node.id, valueOutputs);
+        pureOutputsCacheByNodeId.clear();
+      }
+
+      const execOutputs = nodeDef.execOutputs ?? [];
+
+      const execResult = impl.execute
+        ? impl.execute({
+            node,
+            def: nodeDef,
+            inputs: inputValues,
+            runtime,
+            DecimalCtor,
+            execInPort: currentExec.port,
+          })
+        : execOutputs.length === 1
+          ? { kind: 'continue' as const, port: execOutputs[0]!.name }
+          : execOutputs.length > 1
+            ? { kind: 'return' as const }
+            : null;
+
+      if (!execResult) {
+        continue;
+      }
+
+      if (execResult.kind === 'return') {
+        execStack.length = 0;
+        break;
+      }
+
+      if (execResult.kind === 'continue_many') {
+        // LIFO 栈：逆序 push 以保证 ports[0] 最先执行（确定性）。
+        for (let i = execResult.ports.length - 1; i >= 0; i--) {
+          const port = execResult.ports[i];
+          if (!port) {
+            continue;
+          }
+          const nextEdge = execEdgeByFromPort.get(`${node.id}::${port}`);
+          if (nextEdge) {
+            execStack.push(nextEdge.to);
+          }
         }
+        continue;
+      }
+
+      const nextEdge = execEdgeByFromPort.get(`${node.id}::${execResult.port}`);
+      if (nextEdge) {
+        execStack.push(nextEdge.to);
       }
     }
 
@@ -142,175 +354,201 @@ export class GraphRunnerService implements RunnerPort {
     for (const output of graph.outputs) {
       ensureTimeout(startedAt, limits.timeoutMs);
 
-      const sourceNodeOutputs = nodeOutputs.get(output.from.nodeId);
-      if (!sourceNodeOutputs) {
-        throw new RunnerExecutionError(
-          'RUNNER_DETERMINISTIC_ERROR',
-          `output source node not computed: ${output.from.nodeId}`,
-        );
-      }
-      if (
-        !Object.prototype.hasOwnProperty.call(
-          sourceNodeOutputs,
-          output.from.port,
-        )
-      ) {
-        throw new RunnerExecutionError(
-          'RUNNER_DETERMINISTIC_ERROR',
-          `output source port not found: ${output.from.nodeId}.${output.from.port}`,
-        );
-      }
+      const value = this.readValue({
+        nodeId: output.from.nodeId,
+        port: output.from.port,
+        nodeById,
+        incomingValueEdgeByPort,
+        pureOutputsCacheByNodeId,
+        impureOutputsByNodeId,
+        startedAt,
+        timeoutMs: limits.timeoutMs,
+        runtime,
+        DecimalCtor,
+      });
 
-      let outputValue = sourceNodeOutputs[output.from.port];
-      if (output.rounding) {
-        outputValue = applyOutputRounding(
-          outputValue,
-          output.valueType,
-          output.rounding.scale,
-          output.rounding.mode,
-        );
-      }
+      const outputValue = output.rounding
+        ? applyOutputRounding(
+            value,
+            output.valueType,
+            output.rounding.scale,
+            output.rounding.mode,
+            DecimalCtor,
+          )
+        : value;
 
       outputs[output.key] = outputValue;
     }
 
     return { outputs };
   }
-}
 
-function evaluateNode(
-  node: GraphNode,
-  inputs: Record<string, unknown>,
-  variableValues: Record<string, unknown>,
-): Record<string, unknown> {
-  if (node.nodeType.startsWith('core.var.')) {
-    const path = getString(node.params?.['path']);
-    if (!path) {
-      throw new RunnerExecutionError(
-        'RUNNER_DETERMINISTIC_ERROR',
-        `core.var node requires params.path: ${node.id}`,
-      );
-    }
-    if (!Object.prototype.hasOwnProperty.call(variableValues, path)) {
-      throw new RunnerExecutionError(
-        'RUNNER_DETERMINISTIC_ERROR',
-        `variable path is not available at runtime: ${path}`,
-      );
-    }
-    return {
-      value: variableValues[path],
-    };
-  }
+  private buildInputValues(params: {
+    node: GraphNode;
+    nodeDef: NodeDef;
+    nodeById: Map<string, GraphNode>;
+    incomingValueEdgeByPort: Map<string, GraphEdge>;
+    pureOutputsCacheByNodeId: Map<string, Record<string, unknown>>;
+    impureOutputsByNodeId: Map<string, Record<string, unknown>>;
+    startedAt: number;
+    timeoutMs: number;
+    runtime: RunnerRuntimeContext;
+    DecimalCtor: typeof Decimal;
+  }): Record<string, unknown> {
+    const {
+      node,
+      nodeDef,
+      nodeById,
+      incomingValueEdgeByPort,
+      pureOutputsCacheByNodeId,
+      impureOutputsByNodeId,
+      startedAt,
+      timeoutMs,
+      runtime,
+      DecimalCtor,
+    } = params;
 
-  if (node.nodeType.startsWith('core.const.')) {
-    const valueType = valueTypeFromCoreNodeType(node.nodeType);
-    if (!valueType) {
-      throw new RunnerExecutionError(
-        'RUNNER_DETERMINISTIC_ERROR',
-        `unsupported constant node type: ${node.nodeType}`,
-      );
-    }
-    const rawValue = node.params?.['value'];
-    const canonicalized = canonicalizeValueByType(valueType, rawValue);
-    if (!canonicalized.ok) {
-      throw new RunnerExecutionError(
-        'RUNNER_DETERMINISTIC_ERROR',
-        `invalid constant value for ${node.id}: ${canonicalized.message}`,
-      );
-    }
-    return { value: canonicalized.value };
-  }
+    const inputValues: Record<string, unknown> = {};
+    for (const inputPort of nodeDef.inputs) {
+      ensureTimeout(startedAt, timeoutMs);
 
-  switch (node.nodeType) {
-    case 'math.add': {
-      const result =
-        toDecimalNumber(inputs['a'], `${node.id}.a`) +
-        toDecimalNumber(inputs['b'], `${node.id}.b`);
-      return { value: canonicalizeDecimalOutput(result, node.id) };
-    }
-    case 'math.sub': {
-      const result =
-        toDecimalNumber(inputs['a'], `${node.id}.a`) -
-        toDecimalNumber(inputs['b'], `${node.id}.b`);
-      return { value: canonicalizeDecimalOutput(result, node.id) };
-    }
-    case 'math.mul': {
-      const result =
-        toDecimalNumber(inputs['a'], `${node.id}.a`) *
-        toDecimalNumber(inputs['b'], `${node.id}.b`);
-      return { value: canonicalizeDecimalOutput(result, node.id) };
-    }
-    case 'math.div': {
-      const left = toDecimalNumber(inputs['a'], `${node.id}.a`);
-      const right = toDecimalNumber(inputs['b'], `${node.id}.b`);
-      if (right === 0) {
+      const incomingEdge = incomingValueEdgeByPort.get(
+        `${node.id}::${inputPort.name}`,
+      );
+      if (!incomingEdge) {
         throw new RunnerExecutionError(
           'RUNNER_DETERMINISTIC_ERROR',
-          `division by zero at ${node.id}`,
+          `missing edge for ${node.id}.${inputPort.name}`,
         );
       }
-      const result = left / right;
-      return { value: canonicalizeDecimalOutput(result, node.id) };
+
+      inputValues[inputPort.name] = this.readValue({
+        nodeId: incomingEdge.from.nodeId,
+        port: incomingEdge.from.port,
+        nodeById,
+        incomingValueEdgeByPort,
+        pureOutputsCacheByNodeId,
+        impureOutputsByNodeId,
+        startedAt,
+        timeoutMs,
+        runtime,
+        DecimalCtor,
+      });
     }
-    default:
+
+    return inputValues;
+  }
+
+  private readValue(params: {
+    nodeId: string;
+    port: string;
+    nodeById: Map<string, GraphNode>;
+    incomingValueEdgeByPort: Map<string, GraphEdge>;
+    pureOutputsCacheByNodeId: Map<string, Record<string, unknown>>;
+    impureOutputsByNodeId: Map<string, Record<string, unknown>>;
+    startedAt: number;
+    timeoutMs: number;
+    runtime: RunnerRuntimeContext;
+    DecimalCtor: typeof Decimal;
+  }): unknown {
+    const {
+      nodeId,
+      port,
+      nodeById,
+      incomingValueEdgeByPort,
+      pureOutputsCacheByNodeId,
+      impureOutputsByNodeId,
+      startedAt,
+      timeoutMs,
+      runtime,
+      DecimalCtor,
+    } = params;
+
+    ensureTimeout(startedAt, timeoutMs);
+
+    const node = nodeById.get(nodeId);
+    if (!node) {
+      throw new RunnerExecutionError(
+        'RUNNER_DETERMINISTIC_ERROR',
+        `node not found: ${nodeId}`,
+      );
+    }
+
+    const nodeDef = this.nodeCatalogService.getNode(node.nodeType);
+    if (!nodeDef) {
+      throw new RunnerExecutionError(
+        'RUNNER_DETERMINISTIC_ERROR',
+        `node is not in catalog: ${node.nodeType}`,
+      );
+    }
+
+    const isImpure =
+      (nodeDef.execInputs ?? []).length > 0 || (nodeDef.execOutputs ?? []).length > 0;
+    if (isImpure) {
+      const outputs = impureOutputsByNodeId.get(node.id);
+      if (!outputs) {
+        throw new RunnerExecutionError(
+          'RUNNER_DETERMINISTIC_ERROR',
+          `impure node outputs not available before execution: ${node.id}`,
+        );
+      }
+      if (!Object.prototype.hasOwnProperty.call(outputs, port)) {
+        throw new RunnerExecutionError(
+          'RUNNER_DETERMINISTIC_ERROR',
+          `source port not found: ${node.id}.${port}`,
+        );
+      }
+      return outputs[port];
+    }
+
+    const cached = pureOutputsCacheByNodeId.get(node.id);
+    if (cached) {
+      if (!Object.prototype.hasOwnProperty.call(cached, port)) {
+        throw new RunnerExecutionError(
+          'RUNNER_DETERMINISTIC_ERROR',
+          `source port not found: ${node.id}.${port}`,
+        );
+      }
+      return cached[port];
+    }
+
+    const impl = getNodeImplementationV1(node.nodeType);
+    if (!impl) {
       throw new RunnerExecutionError(
         'RUNNER_DETERMINISTIC_ERROR',
         `unsupported node type: ${node.nodeType}`,
       );
-  }
-}
+    }
 
-function canonicalizeDecimalOutput(value: number, nodeId: string): string {
-  if (!Number.isFinite(value)) {
-    throw new RunnerExecutionError(
-      'RUNNER_DETERMINISTIC_ERROR',
-      `non-finite decimal result at ${nodeId}`,
-    );
-  }
-  const canonicalized = canonicalizeValueByType('Decimal', value);
-  if (!canonicalized.ok) {
-    throw new RunnerExecutionError(
-      'RUNNER_DETERMINISTIC_ERROR',
-      `decimal canonicalization failed at ${nodeId}: ${canonicalized.message}`,
-    );
-  }
-  return canonicalized.value as string;
-}
+    const inputValues = this.buildInputValues({
+      node,
+      nodeDef,
+      nodeById,
+      incomingValueEdgeByPort,
+      pureOutputsCacheByNodeId,
+      impureOutputsByNodeId,
+      startedAt,
+      timeoutMs,
+      runtime,
+      DecimalCtor,
+    });
 
-function toDecimalNumber(value: unknown, label: string): number {
-  if (typeof value !== 'string' && typeof value !== 'number') {
-    throw new RunnerExecutionError(
-      'RUNNER_DETERMINISTIC_ERROR',
-      `decimal input must be string/number: ${label}`,
-    );
-  }
-  const converted = Number(value);
-  if (!Number.isFinite(converted)) {
-    throw new RunnerExecutionError(
-      'RUNNER_DETERMINISTIC_ERROR',
-      `decimal input is not finite: ${label}`,
-    );
-  }
-  return converted;
-}
+    const outputs = impl.evaluate({
+      node,
+      def: nodeDef,
+      inputs: inputValues,
+      runtime,
+      DecimalCtor,
+    });
+    pureOutputsCacheByNodeId.set(node.id, outputs);
 
-function valueTypeFromCoreNodeType(nodeType: string): ValueType | null {
-  const suffix = nodeType.split('.').at(-1);
-  switch (suffix) {
-    case 'decimal':
-      return 'Decimal';
-    case 'ratio':
-      return 'Ratio';
-    case 'string':
-      return 'String';
-    case 'boolean':
-      return 'Boolean';
-    case 'datetime':
-      return 'DateTime';
-    case 'json':
-      return 'Json';
-    default:
-      return null;
+    if (!Object.prototype.hasOwnProperty.call(outputs, port)) {
+      throw new RunnerExecutionError(
+        'RUNNER_DETERMINISTIC_ERROR',
+        `source port not found: ${node.id}.${port}`,
+      );
+    }
+    return outputs[port];
   }
 }
 
@@ -319,6 +557,7 @@ function applyOutputRounding(
   valueType: ValueType,
   scale: number,
   mode: RoundingMode,
+  DecimalCtor: typeof Decimal,
 ): unknown {
   if (valueType !== 'Decimal' && valueType !== 'Ratio') {
     throw new RunnerExecutionError(
@@ -327,9 +566,9 @@ function applyOutputRounding(
     );
   }
 
-  const numericValue = toDecimalNumber(value, 'output.rounding');
-  const rounded = roundWithMode(numericValue, scale, mode);
-  const canonicalized = canonicalizeValueByType(valueType, rounded);
+  const decimalValue = toDecimal(value, 'output.rounding', DecimalCtor);
+  const rounded = decimalValue.toDecimalPlaces(scale, toDecimalRounding(mode));
+  const canonicalized = canonicalizeValueByType(valueType, rounded.toString());
   if (!canonicalized.ok) {
     throw new RunnerExecutionError(
       'RUNNER_DETERMINISTIC_ERROR',
@@ -339,95 +578,6 @@ function applyOutputRounding(
   return canonicalized.value;
 }
 
-function roundWithMode(
-  value: number,
-  scale: number,
-  mode: RoundingMode,
-): number {
-  const factor = Math.pow(10, scale);
-  const scaled = value * factor;
-
-  switch (mode) {
-    case 'UP':
-      return (scaled >= 0 ? Math.ceil(scaled) : Math.floor(scaled)) / factor;
-    case 'DOWN':
-      return (scaled >= 0 ? Math.floor(scaled) : Math.ceil(scaled)) / factor;
-    case 'CEIL':
-      return Math.ceil(scaled) / factor;
-    case 'FLOOR':
-      return Math.floor(scaled) / factor;
-    case 'HALF_UP':
-      return roundHalfUp(scaled) / factor;
-    case 'HALF_DOWN':
-      return roundHalfDown(scaled) / factor;
-    case 'HALF_EVEN':
-      return roundHalfEven(scaled) / factor;
-    case 'HALF_CEIL':
-      return roundHalfCeil(scaled) / factor;
-    case 'HALF_FLOOR':
-      return roundHalfFloor(scaled) / factor;
-    default:
-      return roundHalfEven(scaled) / factor;
-  }
-}
-
-function roundHalfUp(value: number): number {
-  const sign = value >= 0 ? 1 : -1;
-  const abs = Math.abs(value);
-  return sign * Math.floor(abs + 0.5);
-}
-
-function roundHalfDown(value: number): number {
-  const sign = value >= 0 ? 1 : -1;
-  const abs = Math.abs(value);
-  const floorValue = Math.floor(abs);
-  const fraction = abs - floorValue;
-  const isTie = Math.abs(fraction - 0.5) < 1e-12;
-  if (isTie) {
-    return sign * floorValue;
-  }
-  return sign * Math.floor(abs + 0.5);
-}
-
-function roundHalfEven(value: number): number {
-  const sign = value >= 0 ? 1 : -1;
-  const abs = Math.abs(value);
-  const floorValue = Math.floor(abs);
-  const fraction = abs - floorValue;
-  const isTie = Math.abs(fraction - 0.5) < 1e-12;
-  if (!isTie) {
-    return sign * Math.floor(abs + 0.5);
-  }
-  if (floorValue % 2 === 0) {
-    return sign * floorValue;
-  }
-  return sign * (floorValue + 1);
-}
-
-function roundHalfCeil(value: number): number {
-  const rounded = roundHalfDown(value);
-  const abs = Math.abs(value);
-  const floorValue = Math.floor(abs);
-  const fraction = abs - floorValue;
-  const isTie = Math.abs(fraction - 0.5) < 1e-12;
-  if (!isTie) {
-    return rounded;
-  }
-  return Math.ceil(value);
-}
-
-function roundHalfFloor(value: number): number {
-  const rounded = roundHalfDown(value);
-  const abs = Math.abs(value);
-  const floorValue = Math.floor(abs);
-  const fraction = abs - floorValue;
-  const isTie = Math.abs(fraction - 0.5) < 1e-12;
-  if (!isTie) {
-    return rounded;
-  }
-  return Math.floor(value);
-}
-
 function ensureTimeout(startedAt: number, timeoutMs: number) {
   if (Date.now() - startedAt > timeoutMs) {
     throw new RunnerExecutionError('RUNNER_TIMEOUT', 'runner timeout exceeded');
@@ -435,7 +585,6 @@ function ensureTimeout(startedAt: number, timeoutMs: number) {
 }
 
 function topologicalSortWithDepth(graph: GraphJsonV1): {
-  sortedNodeIds: string[];
   maxDepth: number;
 } {
   const indegree = new Map<string, number>();
@@ -500,18 +649,22 @@ function topologicalSortWithDepth(graph: GraphJsonV1): {
     }
   }
 
-  return { sortedNodeIds, maxDepth };
+  return { maxDepth };
 }
 
 function readRunnerLimits(config: unknown): {
   maxNodes: number;
   maxDepth: number;
+  maxSteps: number;
   timeoutMs: number;
+  maxCallDepth: number;
 } {
   const defaults = {
     maxNodes: 500,
     maxDepth: 200,
+    maxSteps: 20000,
     timeoutMs: 3000,
+    maxCallDepth: 8,
   };
 
   if (!isPlainObject(config)) {
@@ -526,7 +679,12 @@ function readRunnerLimits(config: unknown): {
   return {
     maxNodes: readPositiveInt(limitsValue['maxNodes'], defaults.maxNodes),
     maxDepth: readPositiveInt(limitsValue['maxDepth'], defaults.maxDepth),
+    maxSteps: readPositiveInt(limitsValue['maxSteps'], defaults.maxSteps),
     timeoutMs: readPositiveInt(limitsValue['timeoutMs'], defaults.timeoutMs),
+    maxCallDepth: readPositiveInt(
+      limitsValue['maxCallDepth'],
+      defaults.maxCallDepth,
+    ),
   };
 }
 
@@ -558,6 +716,38 @@ function deepMerge(
   return result;
 }
 
-function getString(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null;
+function buildDecimalCtor(config: Record<string, unknown>): typeof Decimal {
+  const decimalConfig = config['decimal'];
+  if (!isPlainObject(decimalConfig)) {
+    return Decimal.clone();
+  }
+
+  const options: { precision?: number; rounding?: Decimal.Rounding } = {};
+
+  if (Object.prototype.hasOwnProperty.call(decimalConfig, 'precision')) {
+    const precision = decimalConfig['precision'];
+    if (
+      typeof precision === 'number' &&
+      Number.isInteger(precision) &&
+      precision > 0
+    ) {
+      options.precision = precision;
+    } else if (precision !== undefined) {
+      throw new RunnerExecutionError(
+        'RUNNER_DETERMINISTIC_ERROR',
+        'decimal.precision must be a positive integer',
+      );
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(decimalConfig, 'roundingMode')) {
+    const roundingMode = decimalConfig['roundingMode'];
+    if (roundingMode === undefined) {
+      // noop
+    } else {
+      options.rounding = toDecimalRounding(getRoundingMode(roundingMode));
+    }
+  }
+
+  return Decimal.clone(options);
 }

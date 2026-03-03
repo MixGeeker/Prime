@@ -1,6 +1,6 @@
 # Compute Engine 后端文档（实现与运维约定）
 
-> 项目执行里程碑与任务拆解见：`compute-engine/BACKEND_EXECUTION.md`。
+> 项目执行里程碑与任务拆解见：`BACKEND_EXECUTION.md`。
 
 ## 1. 技术栈（建议）
 - 语言：TypeScript
@@ -21,7 +21,7 @@
 > 目标：引擎核心不依赖 MQ/DB/框架细节，未来替换事件系统（RabbitMQ → Kafka/NATS/HTTP 等）只需要新增适配器。
 
 - **Domain（领域层）**
-  - 纯业务规则与不变性：Definition（draft/version）、Job（执行与状态）、值对象（hash、时间等）。
+  - 纯业务规则与不变性：Definition（draft/release）、Job（执行与状态）、值对象（hash、时间等）。
   - 不引用 NestJS/TypeORM/amqplib 等基础设施依赖。
 - **Application（应用层）**
   - 用例编排：UpsertDraft、Validate、DryRun、Publish、ExecuteJob、OutboxDispatch 等。
@@ -57,7 +57,8 @@ src/
 ```
 
 ### 2.3 关键 Ports（示例）
-- `DefinitionRepositoryPort`：读写 draft / versions。
+- `DefinitionDraftRepositoryPort`：读写 draft（用于编辑与发布前校验/预览）。
+- `DefinitionReleaseRepositoryPort`：读写 releases（append-only，以 `definitionHash` 标识不可变发布物）。
 - `JobRepositoryPort`：落库 job（**建议作为 MQ 执行链路的必选项**，用于 `jobId` 幂等与回放）。
 - `InboxRepositoryPort`：可选（用于去重“消息投递”，但 `compute.job.requested.v1` 推荐直接以 `jobs.job_id` 唯一约束实现幂等）。
 - `OutboxRepositoryPort`：写入/拉取/锁定 outbox 记录。
@@ -79,9 +80,9 @@ src/
 ---
 
 ## 3. 服务职责
-- 存储 Definition draft/published versions（发布后不可变）。
-- 对 `compute.job.requested.v1` 做：`jobId` 幂等 → 读取 DefinitionVersion → 校验 inputs → 应用 defaults 得到 effectiveInputs → canonicalize → inputsHash → Runner 执行 → outbox 发布结果事件。
-- 提供 Admin API（供集成方 Editor 对接）：draft CRUD、validate、dry-run、publish/deprecate、版本读取。
+- 存储 Definition draft/published releases（发布后不可变；以 `definitionHash` 精确定位）。
+- 对 `compute.job.requested.v1` 做：`jobId` 幂等 → 读取 DefinitionRelease（`definitionId + definitionHash`）→ 校验 inputs → 应用 defaults 得到 effectiveInputs → canonicalize → inputsHash → Runner 执行 → outbox 发布结果事件。
+- 提供 Admin API（供集成方 Editor 对接）：draft CRUD、validate、dry-run、publish/deprecate release、release 列表与详情。
 - 提供 Node Catalog（API 或包）。
 
 ---
@@ -90,7 +91,8 @@ src/
 
 ### 4.1 `definitions`
 - `definition_id` (PK)
-- `created_at`
+- `latest_definition_hash`（可选：便于 publish 后快速定位 latest）
+- `created_at`, `updated_at`
 
 ### 4.2 `definition_drafts`
 - `definition_id` (PK/FK)
@@ -101,21 +103,22 @@ src/
 - `runner_config_json`（可选）
 - `updated_at`
 
-### 4.3 `definition_versions`
-- `definition_id` + `version` (PK)
+### 4.3 `definition_releases`
+- `definition_hash` (PK)
+- `definition_id` (FK)
 - `status`（published/deprecated）
-- `definition_hash`
 - `content_json`（冻结）
 - `output_schema_json`（冻结）
 - `runner_config_json`（冻结）
 - `changelog`
 - `published_at`, `published_by?`
+- `deprecated_at`, `deprecated_reason`
 
 ### 4.4 `jobs`（建议作为必选）
 - `job_id` (PK)
 - `request_hash`（用于检测“同 jobId 不同 payload”的冲突）
 - `message_id?`, `correlation_id?`（追踪用）
-- `definition_id`, `version_used`, `definition_hash`
+- `definition_id`, `definition_hash_used`
 - `inputs_hash`, `outputs_hash`
 - `status`, `requested_at`, `computed_at`
 - `inputs_snapshot_json?`（可选：严格回放/审计用）
@@ -140,18 +143,18 @@ src/
 ## 5. 关键实现约束
 
 ### 5.1 Definition 发布后不可变
-- `publish` 只能从 draft 生成新 `version`。
-- 已发布版本禁止覆盖更新；改动必须发布新版本。
+- `publish` 只能从 draft 生成新 release（以 `definitionHash` 标识）。
+- 已发布 release 禁止覆盖更新；改动必须发布新 release（append-only）。
 
 ### 5.2 Inputs 校验与规范化（canonicalize）
-- 校验 `inputs` 是否满足 Definition 的 `variables`（必填、类型、约束）。
-- 在计算 `inputsHash` 前应用 `variables.default`（仅对 `required=false` 且缺失的变量生效；规则见 `HASHING_SPEC.md`）。
+- 校验 `inputs` 是否满足 Definition 的 `globals + entrypoints(params)`（必填、类型、约束）。
+- 在计算 `inputsHash` 前应用 defaults（仅对 `required=false` 且缺失的项生效；规则见 `HASHING_SPEC.md`）。
 - 将 `Decimal/Ratio/DateTime` 等做规范化后再 hash（保证跨语言/跨环境一致）。
 - `inputsHash` 必须包含所有会影响输出的内容（包括 `options`）。
 
 ### 5.3 Runner 纯函数
 - Runner 不做 DB/HTTP/MQ IO。
-- Runner 只依赖 `canonicalizedInputs` 与冻结的 DefinitionVersion。
+- Runner 只依赖 `canonicalizedInputs` 与冻结的 DefinitionRelease（`definitionHash` 对应的发布物）。
 
 ### 5.4 MQ 幂等与 ack/nack（落地必须明确）
 - **ack 时机**：当且仅当“job 状态 + outbox 事件”已在同一 DB 事务内提交成功后 ack；避免丢结果事件。
@@ -167,7 +170,7 @@ src/
 
 ## 6. 可观测性与运维
 - 指标：job 执行耗时、成功/失败率、outbox pending/failed 数量、发布延迟（requested→published）。
-- 日志：按 `jobId`/`messageId`/`correlationId` 打点；错误要可回溯到 `definitionId+version` 与 `inputsHash`。
+- 日志：按 `jobId`/`messageId`/`correlationId` 打点；错误要可回溯到 `definitionId+definitionHash(+entrypointKey)` 与 `inputsHash`。
 - DLQ：必须可观测与可回放（至少可重投原始 message）。
 
 ---
@@ -177,7 +180,7 @@ src/
 > 目标：在保证“可追溯/可审计/可回放（按需）”的前提下，控制数据库体积与运维成本。
 
 ### 7.1 可清理对象（建议）
-- **DefinitionVersions**：默认**不自动清理**（append-only；体积通常很小，是追溯的根）。
+- **DefinitionReleases**：默认**不自动清理**（append-only；体积通常很小，是追溯的根）。
 - **DefinitionDrafts**：可自动清理长时间未更新的草稿（例如 `updated_at` 超过 90 天）。
 - **Jobs 元数据**（`jobId/definitionRefUsed/definitionHash/inputsHash/status/timestamps`）：建议保留更久（例如 1~3 年，或按财务/审计要求更长）。
 - **Jobs 快照**（`inputs_snapshot_json/outputs_json`，如果你们存了）：建议更短保留或归档到冷存储（例如 30~180 天）。

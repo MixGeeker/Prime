@@ -1,9 +1,9 @@
 /**
- * Graph JSON 的结构校验 schema（MVP）。
+ * BlueprintGraph 的结构校验 schema（MVP）。
  *
  * 说明：
  * - 用 Ajv 做“结构/字段类型/基本约束”的第一层校验；
- * - 其余跨字段规则（唯一性、DAG、端口类型匹配、catalog 校验等）由 GraphValidatorService 负责。
+ * - 其余跨字段规则（唯一性、value-DAG、端口类型匹配、catalog 校验等）由 GraphValidatorService 负责。
  */
 
 export const ROUNDING_MODES = [
@@ -27,32 +27,51 @@ export const VALUE_TYPES = [
   'Json',
 ] as const;
 
-export const GRAPH_JSON_SCHEMA_V1 = {
+export const BLUEPRINT_GRAPH_SCHEMA_V1 = {
   $schema: 'http://json-schema.org/draft-07/schema#',
   type: 'object',
   // top-level 允许扩展字段（例如 metadata/resolvers），避免 UI/生态字段破坏执行字段。
   additionalProperties: true,
-  required: ['schemaVersion', 'variables', 'nodes', 'edges', 'outputs'],
+  required: [
+    'globals',
+    'entrypoints',
+    'locals',
+    'nodes',
+    'edges',
+    'execEdges',
+    'outputs',
+  ],
   properties: {
-    schemaVersion: { const: 1 },
-    variables: {
+    globals: { $ref: '#/definitions/inputDefArray' },
+    entrypoints: {
       type: 'array',
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['path', 'valueType'],
+        required: ['key', 'params', 'to'],
         properties: {
-          path: {
+          key: { type: 'string', minLength: 1 },
+          params: { $ref: '#/definitions/inputDefArray' },
+          to: { $ref: '#/definitions/endpoint' },
+        },
+      },
+    },
+    locals: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name', 'valueType'],
+        properties: {
+          name: {
             type: 'string',
             minLength: 1,
-            pattern: '^inputs\\.[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$',
+            pattern: '^[A-Za-z0-9_-]+$',
           },
           valueType: { enum: VALUE_TYPES },
-          required: { type: 'boolean' },
-          description: { type: 'string' },
           // default 的具体校验需要结合 valueType 做 typed validate，这里先不限制类型。
           default: {},
-          constraints: { type: 'object' },
+          description: { type: 'string' },
         },
       },
     },
@@ -61,27 +80,16 @@ export const GRAPH_JSON_SCHEMA_V1 = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['id', 'nodeType', 'nodeVersion'],
+        required: ['id', 'nodeType'],
         properties: {
           id: { type: 'string', minLength: 1 },
           nodeType: { type: 'string', minLength: 1 },
-          nodeVersion: { type: 'integer', minimum: 1 },
           params: { type: 'object' },
         },
       },
     },
-    edges: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['from', 'to'],
-        properties: {
-          from: { $ref: '#/definitions/endpoint' },
-          to: { $ref: '#/definitions/endpoint' },
-        },
-      },
-    },
+    edges: { $ref: '#/definitions/edgeArray' },
+    execEdges: { $ref: '#/definitions/edgeArray' },
     outputs: {
       type: 'array',
       items: {
@@ -108,6 +116,27 @@ export const GRAPH_JSON_SCHEMA_V1 = {
     resolvers: {},
   },
   definitions: {
+    inputDefArray: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name', 'valueType'],
+        properties: {
+          name: {
+            type: 'string',
+            minLength: 1,
+            pattern: '^[A-Za-z0-9_-]+$',
+          },
+          valueType: { enum: VALUE_TYPES },
+          required: { type: 'boolean' },
+          description: { type: 'string' },
+          // default 的具体校验需要结合 valueType 做 typed validate，这里先不限制类型。
+          default: {},
+          constraints: { type: 'object' },
+        },
+      },
+    },
     endpoint: {
       type: 'object',
       additionalProperties: false,
@@ -117,5 +146,18 @@ export const GRAPH_JSON_SCHEMA_V1 = {
         port: { type: 'string', minLength: 1 },
       },
     },
+    edgeArray: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['from', 'to'],
+        properties: {
+          from: { $ref: '#/definitions/endpoint' },
+          to: { $ref: '#/definitions/endpoint' },
+        },
+      },
+    },
   },
 } as const;
+

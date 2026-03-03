@@ -38,18 +38,12 @@ async function bootstrap() {
   app.enableShutdownHooks();
 
   const logger = new Logger('WorkerBootstrap');
-  logger.log('MQ worker started (placeholder)');
-
-  // 目前尚未真正接入 MQ 消费，为避免进程立即退出，用定时器保持 event loop。
-  const keepAlive = setInterval(() => {
-    // Keep the event loop alive until a real MQ consumer is wired in.
-  }, 60_000);
+  logger.log('Worker started');
 
   await new Promise<void>((resolve) => {
     const shutdown = (signal: string) => {
       void (async () => {
         logger.log(`Received ${signal}, shutting down...`);
-        clearInterval(keepAlive);
         await app.close();
         resolve();
       })();

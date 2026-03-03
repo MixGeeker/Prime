@@ -1,13 +1,13 @@
 # Compute Engine Value Types（类型系统）
 
-> 本文档定义 `valueType` 的标准：用于 Node Catalog、Variable Catalog、Definition 的 `variables/outputs` 以及运行时校验。
+> 本文档定义 `valueType` 的标准：用于 Node Catalog、BlueprintGraph 的 `globals/entrypoints(params)/locals/outputs` 以及运行时校验。
 >
 > 目标：保证 Engine/Provider/Editor 之间对“值的语义与结构”有一致理解，从而支持：静态校验、确定性计算、可追溯与可回放。
 
 ## 1. 设计原则
 - **值是数据，不是代码**：类型系统只约定“结构与语义”，不引入业务名词。
 - **确定性优先**：数值一律按 decimal 语义处理，避免 JS 浮点误差。
-- **向后兼容**：新增类型/语义通过 `schemaVersion` 或 `nodeVersion` 演进，已发布 Definition 不被破坏。
+- **向后兼容**：新增类型/语义通过新增 `nodeType`（例如 `math.add_v2`）或一次性 schema 迁移演进；已发布 Definition（以 `definitionHash` 标识）不被破坏。
 
 ---
 

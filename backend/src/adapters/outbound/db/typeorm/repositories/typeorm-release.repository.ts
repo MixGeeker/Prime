@@ -1,38 +1,37 @@
 import type { EntityManager } from 'typeorm';
 import type {
-  DefinitionVersionRepositoryPort,
-  InsertDefinitionVersionParams,
-} from '../../../../../application/ports/definition-version-repository.port';
-import type { DefinitionVersion } from '../../../../../domain/definition/definition';
-import { DefinitionVersionEntity } from '../entities/definition-version.entity';
+  DefinitionReleaseRepositoryPort,
+  InsertDefinitionReleaseParams,
+} from '../../../../../application/ports/definition-release-repository.port';
+import type { DefinitionRelease } from '../../../../../domain/definition/definition';
+import { DefinitionReleaseEntity } from '../entities/definition-release.entity';
 
 /**
- * VersionRepo 的 TypeORM 实现（PostgreSQL）。
+ * ReleaseRepo 的 TypeORM 实现（PostgreSQL）。
  *
  * 说明：
- * - 发布版本是 append-only：这里只提供 insert，不提供 update
+ * - 发布物是 append-only：这里只提供 insert，不提供覆盖更新
  * - 使用原生 SQL 写入，避免 TypeORM 对 jsonb 的类型推断问题
  */
-export class TypeOrmVersionRepository implements DefinitionVersionRepositoryPort {
+export class TypeOrmReleaseRepository implements DefinitionReleaseRepositoryPort {
   constructor(private readonly manager: EntityManager) {}
 
-  async getVersion(
+  async getRelease(
     definitionId: string,
-    version: number,
-  ): Promise<DefinitionVersion | null> {
+    definitionHash: string,
+  ): Promise<DefinitionRelease | null> {
     const row = await this.manager
-      .getRepository(DefinitionVersionEntity)
+      .getRepository(DefinitionReleaseEntity)
       .findOne({
-        where: { definitionId, version },
+        where: { definitionId, definitionHash },
       });
     if (!row) {
       return null;
     }
     return {
       definitionId: row.definitionId,
-      version: row.version,
-      status: row.status as DefinitionVersion['status'],
       definitionHash: row.definitionHash,
+      status: row.status as DefinitionRelease['status'],
       content: row.contentJson,
       outputSchema: row.outputSchemaJson ?? null,
       runnerConfig: row.runnerConfigJson ?? null,
@@ -44,18 +43,17 @@ export class TypeOrmVersionRepository implements DefinitionVersionRepositoryPort
     };
   }
 
-  async listVersions(definitionId: string): Promise<DefinitionVersion[]> {
+  async listReleases(definitionId: string): Promise<DefinitionRelease[]> {
     const rows = await this.manager
-      .getRepository(DefinitionVersionEntity)
+      .getRepository(DefinitionReleaseEntity)
       .find({
         where: { definitionId },
-        order: { version: 'ASC' },
+        order: { publishedAt: 'DESC' },
       });
     return rows.map((row) => ({
       definitionId: row.definitionId,
-      version: row.version,
-      status: row.status as DefinitionVersion['status'],
       definitionHash: row.definitionHash,
+      status: row.status as DefinitionRelease['status'],
       content: row.contentJson,
       outputSchema: row.outputSchemaJson ?? null,
       runnerConfig: row.runnerConfigJson ?? null,
@@ -67,8 +65,8 @@ export class TypeOrmVersionRepository implements DefinitionVersionRepositoryPort
     }));
   }
 
-  async insertVersion(params: InsertDefinitionVersionParams): Promise<void> {
-    // 确保 definitions 行存在（避免版本外键失败）。
+  async insertRelease(params: InsertDefinitionReleaseParams): Promise<void> {
+    // 确保 definitions 行存在（避免 release 外键失败）。
     await this.manager.query(
       `INSERT INTO definitions (definition_id) VALUES ($1) ON CONFLICT DO NOTHING`,
       [params.definitionId],
@@ -77,11 +75,10 @@ export class TypeOrmVersionRepository implements DefinitionVersionRepositoryPort
     // append-only：不使用 ON CONFLICT UPDATE；冲突应视为发布流程错误。
     await this.manager.query(
       `
-        INSERT INTO definition_versions (
-          definition_id,
-          version,
-          status,
+        INSERT INTO definition_releases (
           definition_hash,
+          definition_id,
+          status,
           content_json,
           output_schema_json,
           runner_config_json,
@@ -89,13 +86,12 @@ export class TypeOrmVersionRepository implements DefinitionVersionRepositoryPort
           published_at,
           published_by
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       `,
       [
-        params.definitionId,
-        params.version,
-        params.status,
         params.definitionHash,
+        params.definitionId,
+        params.status,
         params.content,
         params.outputSchema,
         params.runnerConfig,
@@ -104,32 +100,48 @@ export class TypeOrmVersionRepository implements DefinitionVersionRepositoryPort
         params.publishedBy,
       ],
     );
+
+    // 维护 latest 指针（用于 UI/运维与 publish 冻结子蓝图引用）。
+    await this.manager.query(
+      `
+        UPDATE definitions
+        SET latest_definition_hash = $2, updated_at = now()
+        WHERE definition_id = $1
+      `,
+      [params.definitionId, params.definitionHash],
+    );
   }
 
-  async deprecateVersion(params: {
+  async deprecateRelease(params: {
     definitionId: string;
-    version: number;
+    definitionHash: string;
     reason: string | null;
     deprecatedAt: Date;
-  }): Promise<DefinitionVersion | null> {
+  }): Promise<DefinitionRelease | null> {
     const updateResult: unknown = await this.manager.query(
       `
-        UPDATE definition_versions
+        UPDATE definition_releases
         SET
           status = 'deprecated',
           deprecated_at = $3,
           deprecated_reason = $4
         WHERE definition_id = $1
-          AND version = $2
-        RETURNING definition_id, version
+          AND definition_hash = $2
+        RETURNING definition_hash
       `,
-      [params.definitionId, params.version, params.deprecatedAt, params.reason],
+      [
+        params.definitionId,
+        params.definitionHash,
+        params.deprecatedAt,
+        params.reason,
+      ],
     );
 
     if (!Array.isArray(updateResult) || updateResult.length === 0) {
       return null;
     }
 
-    return this.getVersion(params.definitionId, params.version);
+    return this.getRelease(params.definitionId, params.definitionHash);
   }
 }
+

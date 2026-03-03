@@ -14,6 +14,7 @@ import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import type { LogLevel } from './config/env.validation';
+import { MetricsService } from './observability/metrics/metrics.service';
 
 function toNestLoggerLevels(
   level: LogLevel,
@@ -53,6 +54,44 @@ async function bootstrap() {
 
   const configService = app.get(ConfigService);
   const httpPort = configService.get<number>('HTTP_PORT') ?? 4010;
+
+  const metricsEnabled = configService.get<boolean>('METRICS_ENABLED') ?? true;
+  if (metricsEnabled) {
+    const metricsPathRaw =
+      configService.get<string>('METRICS_PATH') ?? '/metrics';
+    const metricsPath = metricsPathRaw.startsWith('/')
+      ? metricsPathRaw
+      : `/${metricsPathRaw}`;
+    const metricsService = app.get(MetricsService);
+    const httpAdapter = app.getHttpAdapter();
+    type MetricsResponse = {
+      setHeader: (name: string, value: string) => void;
+      end: (body?: string) => void;
+      statusCode?: number;
+    };
+    const instance = httpAdapter.getInstance() as {
+      get: (
+        path: string,
+        handler: (req: unknown, res: MetricsResponse) => void,
+      ) => void;
+    };
+    instance.get(metricsPath, (_req, res) => {
+      void metricsService
+        .getMetricsText()
+        .then((body) => {
+          res.setHeader('Content-Type', metricsService.contentType);
+          res.end(body);
+        })
+        .catch((error) => {
+          res.statusCode = 500;
+          res.end(String(error));
+        });
+    });
+    Logger.log(
+      `Metrics on http://localhost:${httpPort}${metricsPath}`,
+      'Bootstrap',
+    );
+  }
 
   const swaggerPathRaw = configService.get<string>('SWAGGER_PATH') ?? '/docs';
   const swaggerPath = swaggerPathRaw.replace(/^\//, '');

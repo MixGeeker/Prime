@@ -1,3 +1,8 @@
+/**
+ * UpdateDraft 用例：更新某个 Definition 的 draft（乐观并发）。
+ *
+ * 说明：通过 draftRevisionId 做并发控制，避免编辑器覆盖他人修改。
+ */
 import { randomUUID } from 'crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import {

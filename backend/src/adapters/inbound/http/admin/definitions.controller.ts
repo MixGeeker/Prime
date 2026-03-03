@@ -1,3 +1,12 @@
+/**
+ * Admin Definitions HTTP Controller（入站适配器）。
+ *
+ * 职责：
+ * - 提供 Definition 的 draft 管理、validate/dry-run、publish/release 查询等能力
+ * - 将 UseCaseError 映射为合适的 HTTP 错误响应
+ *
+ * 说明：控制器只做“协议/鉴权/错误映射”，业务编排由 application/use-cases 完成。
+ */
 import {
   BadRequestException,
   Body,
@@ -7,25 +16,24 @@ import {
   Get,
   NotFoundException,
   Param,
-  ParseIntPipe,
   Post,
   Put,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { CreateDraftUseCase } from '../../../../application/use-cases/create-draft.use-case';
 import { DeleteDraftUseCase } from '../../../../application/use-cases/delete-draft.use-case';
-import { DeprecateVersionUseCase } from '../../../../application/use-cases/deprecate-version.use-case';
+import { DeprecateReleaseUseCase } from '../../../../application/use-cases/deprecate-release.use-case';
 import { DryRunUseCase } from '../../../../application/use-cases/dry-run.use-case';
 import { GetDraftUseCase } from '../../../../application/use-cases/get-draft.use-case';
-import { GetVersionUseCase } from '../../../../application/use-cases/get-version.use-case';
-import { ListVersionsUseCase } from '../../../../application/use-cases/list-versions.use-case';
+import { GetReleaseUseCase } from '../../../../application/use-cases/get-release.use-case';
+import { ListReleasesUseCase } from '../../../../application/use-cases/list-releases.use-case';
 import { PublishDefinitionUseCase } from '../../../../application/use-cases/publish-definition.use-case';
 import { UpdateDraftUseCase } from '../../../../application/use-cases/update-draft.use-case';
 import { UseCaseError } from '../../../../application/use-cases/use-case.error';
 import { ValidateDefinitionUseCase } from '../../../../application/use-cases/validate-definition.use-case';
 import {
   CreateDefinitionDraftDto,
-  DeprecateVersionDto,
+  DeprecateReleaseDto,
   DryRunDto,
   PublishDefinitionDto,
   UpdateDefinitionDraftDto,
@@ -43,9 +51,9 @@ export class AdminDefinitionsController {
     private readonly validateDefinitionUseCase: ValidateDefinitionUseCase,
     private readonly dryRunUseCase: DryRunUseCase,
     private readonly publishDefinitionUseCase: PublishDefinitionUseCase,
-    private readonly deprecateVersionUseCase: DeprecateVersionUseCase,
-    private readonly listVersionsUseCase: ListVersionsUseCase,
-    private readonly getVersionUseCase: GetVersionUseCase,
+    private readonly deprecateReleaseUseCase: DeprecateReleaseUseCase,
+    private readonly listReleasesUseCase: ListReleasesUseCase,
+    private readonly getReleaseUseCase: GetReleaseUseCase,
   ) {}
 
   @Post()
@@ -148,6 +156,7 @@ export class AdminDefinitionsController {
             }
           : undefined,
         inputs: body.inputs,
+        entrypointKey: body.entrypointKey,
         options: body.options ?? {},
       });
     } catch (error) {
@@ -171,16 +180,16 @@ export class AdminDefinitionsController {
     }
   }
 
-  @Post(':definitionId/versions/:version/deprecate')
+  @Post(':definitionId/releases/:definitionHash/deprecate')
   async deprecate(
     @Param('definitionId') definitionId: string,
-    @Param('version', ParseIntPipe) version: number,
-    @Body() body: DeprecateVersionDto,
+    @Param('definitionHash') definitionHash: string,
+    @Body() body: DeprecateReleaseDto,
   ) {
     try {
-      return await this.deprecateVersionUseCase.execute({
+      return await this.deprecateReleaseUseCase.execute({
         definitionId,
-        version,
+        definitionHash,
         reason: body.reason,
       });
     } catch (error) {
@@ -188,18 +197,18 @@ export class AdminDefinitionsController {
     }
   }
 
-  @Get(':definitionId/versions')
-  async listVersions(@Param('definitionId') definitionId: string) {
-    return this.listVersionsUseCase.execute(definitionId);
+  @Get(':definitionId/releases')
+  async listReleases(@Param('definitionId') definitionId: string) {
+    return this.listReleasesUseCase.execute(definitionId);
   }
 
-  @Get(':definitionId/versions/:version')
-  async getVersion(
+  @Get(':definitionId/releases/:definitionHash')
+  async getRelease(
     @Param('definitionId') definitionId: string,
-    @Param('version', ParseIntPipe) version: number,
+    @Param('definitionHash') definitionHash: string,
   ) {
     try {
-      return await this.getVersionUseCase.execute(definitionId, version);
+      return await this.getReleaseUseCase.execute(definitionId, definitionHash);
     } catch (error) {
       throw mapUseCaseError(error);
     }
@@ -214,6 +223,7 @@ function mapUseCaseError(error: unknown) {
   switch (error.code) {
     case 'DEFINITION_DRAFT_NOT_FOUND':
     case 'DEFINITION_NOT_FOUND':
+    case 'DEFINITION_DEPENDENCY_NOT_FOUND':
       return new NotFoundException({
         code: error.code,
         message: error.message,
@@ -238,6 +248,7 @@ function mapUseCaseError(error: unknown) {
         message: error.message,
       });
     case 'DEFINITION_NOT_PUBLISHED':
+    case 'DEFINITION_DEPENDENCY_NOT_PUBLISHED':
       return new ConflictException({
         code: error.code,
         message: error.message,

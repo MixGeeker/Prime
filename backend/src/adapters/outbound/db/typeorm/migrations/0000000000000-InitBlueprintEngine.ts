@@ -1,18 +1,22 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
- * M1 初始化 schema：
- * - definitions / definition_drafts / definition_versions
- * - jobs（幂等存根）/ outbox（可靠发布）
+ * 初始化 schema（无生产数据，按“蓝图控制流 + definitionHash 发布物”重建）。
+ *
+ * Tables:
+ * - definitions / definition_drafts / definition_releases
+ * - jobs（幂等存根 + 结果存档）/ outbox（可靠发布）
  */
-export class InitComputeEngineM11772323541439 implements MigrationInterface {
-  name = 'InitComputeEngineM11772323541439';
+export class InitBlueprintEngine0000000000000 implements MigrationInterface {
+  name = 'InitBlueprintEngine0000000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       CREATE TABLE "definitions" (
         "definition_id" text NOT NULL,
+        "latest_definition_hash" text,
         "created_at" timestamptz NOT NULL DEFAULT now(),
+        "updated_at" timestamptz NOT NULL DEFAULT now(),
         CONSTRAINT "PK_definitions_definition_id" PRIMARY KEY ("definition_id")
       )
     `);
@@ -25,6 +29,7 @@ export class InitComputeEngineM11772323541439 implements MigrationInterface {
         "content_json" jsonb NOT NULL,
         "output_schema_json" jsonb,
         "runner_config_json" jsonb,
+        "created_at" timestamptz NOT NULL DEFAULT now(),
         "updated_at" timestamptz NOT NULL DEFAULT now(),
         CONSTRAINT "PK_definition_drafts_definition_id" PRIMARY KEY ("definition_id"),
         CONSTRAINT "FK_definition_drafts_definition_id" FOREIGN KEY ("definition_id") REFERENCES "definitions"("definition_id") ON DELETE CASCADE
@@ -32,19 +37,20 @@ export class InitComputeEngineM11772323541439 implements MigrationInterface {
     `);
 
     await queryRunner.query(`
-      CREATE TABLE "definition_versions" (
-        "definition_id" text NOT NULL,
-        "version" int NOT NULL,
-        "status" text NOT NULL,
+      CREATE TABLE "definition_releases" (
         "definition_hash" text NOT NULL,
+        "definition_id" text NOT NULL,
+        "status" text NOT NULL,
         "content_json" jsonb NOT NULL,
         "output_schema_json" jsonb,
         "runner_config_json" jsonb,
         "changelog" text,
         "published_at" timestamptz NOT NULL,
         "published_by" text,
-        CONSTRAINT "PK_definition_versions" PRIMARY KEY ("definition_id", "version"),
-        CONSTRAINT "FK_definition_versions_definition_id" FOREIGN KEY ("definition_id") REFERENCES "definitions"("definition_id") ON DELETE CASCADE
+        "deprecated_at" timestamptz,
+        "deprecated_reason" text,
+        CONSTRAINT "PK_definition_releases_definition_hash" PRIMARY KEY ("definition_hash"),
+        CONSTRAINT "FK_definition_releases_definition_id" FOREIGN KEY ("definition_id") REFERENCES "definitions"("definition_id") ON DELETE CASCADE
       )
     `);
 
@@ -55,13 +61,13 @@ export class InitComputeEngineM11772323541439 implements MigrationInterface {
         "message_id" text,
         "correlation_id" text,
         "definition_id" text NOT NULL,
-        "version_used" int NOT NULL,
-        "definition_hash" text,
+        "definition_hash_used" text NOT NULL,
         "inputs_hash" text,
         "outputs_hash" text,
         "status" text NOT NULL,
         "requested_at" timestamptz NOT NULL DEFAULT now(),
         "computed_at" timestamptz,
+        "failed_at" timestamptz,
         "inputs_snapshot_json" jsonb,
         "outputs_json" jsonb,
         "error_code" text,
@@ -89,17 +95,52 @@ export class InitComputeEngineM11772323541439 implements MigrationInterface {
       )
     `);
 
+    // 常用索引（dispatcher/运维/retention）
     await queryRunner.query(
       `CREATE INDEX "IDX_outbox_status_next_retry" ON "outbox" ("status", "next_retry_at")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_outbox_status_updated_at" ON "outbox" ("status", "updated_at")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_jobs_status_requested_at" ON "jobs" ("status", "requested_at")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_jobs_computed_at" ON "jobs" ("computed_at")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_jobs_failed_at" ON "jobs" ("failed_at")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_definition_drafts_updated_at" ON "definition_drafts" ("updated_at")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_definition_releases_definition_id_published_at" ON "definition_releases" ("definition_id", "published_at")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_definition_releases_definition_id_status_published_at" ON "definition_releases" ("definition_id", "status", "published_at")`,
     );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(
+      `DROP INDEX "IDX_definition_releases_definition_id_status_published_at"`,
+    );
+    await queryRunner.query(
+      `DROP INDEX "IDX_definition_releases_definition_id_published_at"`,
+    );
+    await queryRunner.query(`DROP INDEX "IDX_definition_drafts_updated_at"`);
+    await queryRunner.query(`DROP INDEX "IDX_jobs_failed_at"`);
+    await queryRunner.query(`DROP INDEX "IDX_jobs_computed_at"`);
+    await queryRunner.query(`DROP INDEX "IDX_jobs_status_requested_at"`);
+    await queryRunner.query(`DROP INDEX "IDX_outbox_status_updated_at"`);
     await queryRunner.query(`DROP INDEX "IDX_outbox_status_next_retry"`);
+
     await queryRunner.query(`DROP TABLE "outbox"`);
     await queryRunner.query(`DROP TABLE "jobs"`);
-    await queryRunner.query(`DROP TABLE "definition_versions"`);
+    await queryRunner.query(`DROP TABLE "definition_releases"`);
     await queryRunner.query(`DROP TABLE "definition_drafts"`);
     await queryRunner.query(`DROP TABLE "definitions"`);
   }
 }
+

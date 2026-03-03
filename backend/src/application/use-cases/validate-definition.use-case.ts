@@ -1,17 +1,24 @@
+/**
+ * ValidateDefinition 用例：对 definition（或 ref）做静态校验并返回结构化 issues。
+ *
+ * 说明：
+ * - Editor 可用该接口做实时校验提示
+ * - 当校验通过且可计算时，会返回 definitionHash（便于预览/对账）
+ */
 import { Inject, Injectable } from '@nestjs/common';
 import type { ContentType } from '../../domain/definition/definition';
 import { GraphValidatorService } from '../validation/graph-validator.service';
 import type { ValidationIssue } from '../validation/validation-issue';
 import {
-  DEFINITION_VERSION_REPOSITORY,
-  type DefinitionVersionRepositoryPort,
-} from '../ports/definition-version-repository.port';
+  DEFINITION_RELEASE_REPOSITORY,
+  type DefinitionReleaseRepositoryPort,
+} from '../ports/definition-release-repository.port';
 import { HashingService } from '../hashing/hashing.service';
 
 export interface ValidateDefinitionInput {
   definitionRef?: {
     definitionId: string;
-    version: number;
+    definitionHash: string;
   };
   definition?: {
     contentType: ContentType;
@@ -30,8 +37,8 @@ export interface ValidateDefinitionResult {
 @Injectable()
 export class ValidateDefinitionUseCase {
   constructor(
-    @Inject(DEFINITION_VERSION_REPOSITORY)
-    private readonly versionRepository: DefinitionVersionRepositoryPort,
+    @Inject(DEFINITION_RELEASE_REPOSITORY)
+    private readonly releaseRepository: DefinitionReleaseRepositoryPort,
     private readonly graphValidatorService: GraphValidatorService,
     private readonly hashingService: HashingService,
   ) {}
@@ -105,23 +112,23 @@ export class ValidateDefinitionUseCase {
     }
 
     if (input.definitionRef) {
-      const version = await this.versionRepository.getVersion(
+      const release = await this.releaseRepository.getRelease(
         input.definitionRef.definitionId,
-        input.definitionRef.version,
+        input.definitionRef.definitionHash,
       );
-      if (!version) {
+      if (!release) {
         return {
           error: {
             code: 'DEFINITION_NOT_FOUND',
-            message: `definition not found: ${input.definitionRef.definitionId}@${input.definitionRef.version}`,
+            message: `definition not found: ${input.definitionRef.definitionId}@${input.definitionRef.definitionHash}`,
           },
         };
       }
       return {
         contentType: 'graph_json',
-        content: version.content,
-        outputSchema: version.outputSchema,
-        runnerConfig: version.runnerConfig,
+        content: release.content,
+        outputSchema: release.outputSchema,
+        runnerConfig: release.runnerConfig,
       };
     }
 

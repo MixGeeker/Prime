@@ -1,8 +1,16 @@
+/**
+ * DryRun 用例：对给定 definition（或 ref）+ inputs 做一次“预览执行”。
+ *
+ * 约束：
+ * - 不落库、不发 MQ
+ * - 仍会做：graph 校验 / inputs 校验与规范化 / hashing / runner 执行
+ * - 若图包含 `flow.call_definition`，会构建依赖 bundle 并注入 Runner
+ */
 import { Inject, Injectable } from '@nestjs/common';
 import {
-  DEFINITION_VERSION_REPOSITORY,
-  type DefinitionVersionRepositoryPort,
-} from '../ports/definition-version-repository.port';
+  DEFINITION_RELEASE_REPOSITORY,
+  type DefinitionReleaseRepositoryPort,
+} from '../ports/definition-release-repository.port';
 import { GraphValidatorService } from '../validation/graph-validator.service';
 import type { ContentType } from '../../domain/definition/definition';
 import type { GraphJsonV1 } from '../validation/graph-json.types';
@@ -10,11 +18,12 @@ import { HashingService } from '../hashing/hashing.service';
 import { RunnerExecutionError } from '../runner/runner.error';
 import { UseCaseError } from './use-case.error';
 import { RUNNER_PORT, type RunnerPort } from '../ports/runner.port';
+import { DefinitionDependenciesService } from '../definition/definition-dependencies.service';
 
 export interface DryRunCommand {
   definitionRef?: {
     definitionId: string;
-    version: number;
+    definitionHash: string;
   };
   definition?: {
     contentType: ContentType;
@@ -23,17 +32,19 @@ export interface DryRunCommand {
     runnerConfig?: Record<string, unknown> | null;
   };
   inputs: Record<string, unknown>;
+  entrypointKey?: string;
   options?: Record<string, unknown>;
 }
 
 @Injectable()
 export class DryRunUseCase {
   constructor(
-    @Inject(DEFINITION_VERSION_REPOSITORY)
-    private readonly versionRepository: DefinitionVersionRepositoryPort,
+    @Inject(DEFINITION_RELEASE_REPOSITORY)
+    private readonly releaseRepository: DefinitionReleaseRepositoryPort,
     private readonly graphValidatorService: GraphValidatorService,
     private readonly hashingService: HashingService,
     @Inject(RUNNER_PORT) private readonly runnerPort: RunnerPort,
+    private readonly definitionDependenciesService: DefinitionDependenciesService,
   ) {}
 
   async execute(command: DryRunCommand) {
@@ -62,8 +73,9 @@ export class DryRunUseCase {
     });
 
     const inputsSnapshot = this.hashingService.buildInputsSnapshot(
-      graph.variables,
+      graph,
       command.inputs,
+      command.entrypointKey,
       command.options,
     );
     if (!inputsSnapshot.ok) {
@@ -74,13 +86,29 @@ export class DryRunUseCase {
       );
     }
 
+    const rootRef =
+      resolved.definitionRefUsed.definitionId !== '__inline__'
+        ? resolved.definitionRefUsed
+        : undefined;
+    const dependencyBundle = await this.definitionDependenciesService.buildRunnerBundle(
+      {
+        rootContent: resolved.content,
+        rootRef,
+      },
+    );
+
     let runnerOutputs: Record<string, unknown>;
     try {
       runnerOutputs = this.runnerPort.run({
         content: resolved.content,
-        variableValues: inputsSnapshot.variables ?? {},
+        entrypointKey: command.entrypointKey,
+        inputs: {
+          globals: inputsSnapshot.globals ?? {},
+          params: inputsSnapshot.params ?? {},
+        },
         runnerConfig: resolved.runnerConfig,
         options: inputsSnapshot.options ?? {},
+        definitionBundle: dependencyBundle.bundle,
       }).outputs;
     } catch (error) {
       if (error instanceof RunnerExecutionError) {
@@ -113,7 +141,7 @@ export class DryRunUseCase {
   private async resolveDefinition(command: DryRunCommand): Promise<{
     definitionRefUsed: {
       definitionId: string;
-      version: number;
+      definitionHash: string;
     };
     contentType: ContentType;
     content: Record<string, unknown>;
@@ -131,32 +159,32 @@ export class DryRunUseCase {
     }
 
     if (command.definitionRef) {
-      const version = await this.versionRepository.getVersion(
+      const release = await this.releaseRepository.getRelease(
         command.definitionRef.definitionId,
-        command.definitionRef.version,
+        command.definitionRef.definitionHash,
       );
-      if (!version) {
+      if (!release) {
         throw new UseCaseError(
           'DEFINITION_NOT_FOUND',
-          `definition not found: ${command.definitionRef.definitionId}@${command.definitionRef.version}`,
+          `definition not found: ${command.definitionRef.definitionId}@${command.definitionRef.definitionHash}`,
         );
       }
-      if (version.status !== 'published') {
+      if (release.status !== 'published') {
         throw new UseCaseError(
           'DEFINITION_NOT_PUBLISHED',
-          `definition is not published: ${command.definitionRef.definitionId}@${command.definitionRef.version}`,
+          `definition is not published: ${command.definitionRef.definitionId}@${command.definitionRef.definitionHash}`,
         );
       }
 
       return {
         definitionRefUsed: {
-          definitionId: version.definitionId,
-          version: version.version,
+          definitionId: release.definitionId,
+          definitionHash: release.definitionHash,
         },
         contentType: 'graph_json',
-        content: version.content,
-        outputSchema: version.outputSchema,
-        runnerConfig: version.runnerConfig,
+        content: release.content,
+        outputSchema: release.outputSchema,
+        runnerConfig: release.runnerConfig,
       };
     }
 
@@ -171,7 +199,7 @@ export class DryRunUseCase {
     return {
       definitionRefUsed: {
         definitionId: '__inline__',
-        version: 0,
+        definitionHash: '__inline__',
       },
       contentType: definition.contentType,
       content: definition.content,

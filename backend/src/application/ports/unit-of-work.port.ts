@@ -1,5 +1,5 @@
 import type { DefinitionDraftRepositoryPort } from './definition-draft-repository.port';
-import type { DefinitionVersionRepositoryPort } from './definition-version-repository.port';
+import type { DefinitionReleaseRepositoryPort } from './definition-release-repository.port';
 import type { JobRepositoryPort } from './job-repository.port';
 import type { OutboxRepositoryPort } from './outbox-repository.port';
 
@@ -13,7 +13,7 @@ export const UNIT_OF_WORK = Symbol('UnitOfWorkPort');
  */
 export interface UnitOfWorkRepos {
   draftRepo: DefinitionDraftRepositoryPort;
-  versionRepo: DefinitionVersionRepositoryPort;
+  releaseRepo: DefinitionReleaseRepositoryPort;
   jobRepo: JobRepositoryPort;
   outboxRepo: OutboxRepositoryPort;
 }

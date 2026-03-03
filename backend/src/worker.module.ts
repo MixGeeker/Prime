@@ -4,6 +4,9 @@ import { MqWorkerModule } from './adapters/inbound/mq/mq-worker.module';
 import { DbModule } from './adapters/outbound/db/db.module';
 import { ApplicationModule } from './application/application.module';
 import { validateEnv } from './config/env.validation';
+import { MetricsModule } from './observability/metrics/metrics.module';
+import { WorkerMetricsHttpModule } from './observability/metrics/worker-metrics-http.module';
+import { RetentionModule } from './maintenance/retention/retention.module';
 
 /**
  * Worker 进程的根模块。
@@ -21,7 +24,10 @@ import { validateEnv } from './config/env.validation';
     }),
     DbModule,
     ApplicationModule,
+    MetricsModule,
+    WorkerMetricsHttpModule,
     MqWorkerModule,
+    RetentionModule,
   ],
 })
 export class WorkerModule {}

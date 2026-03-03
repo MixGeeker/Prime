@@ -1,34 +1,38 @@
+/**
+ * GetRelease 用例：读取某个发布物（Release）。
+ *
+ * 用途：diff/回放/审计（Editor 或运维系统）。
+ */
 import { Inject, Injectable } from '@nestjs/common';
 import {
-  DEFINITION_VERSION_REPOSITORY,
-  type DefinitionVersionRepositoryPort,
-} from '../ports/definition-version-repository.port';
+  DEFINITION_RELEASE_REPOSITORY,
+  type DefinitionReleaseRepositoryPort,
+} from '../ports/definition-release-repository.port';
 import { UseCaseError } from './use-case.error';
 
 @Injectable()
-export class GetVersionUseCase {
+export class GetReleaseUseCase {
   constructor(
-    @Inject(DEFINITION_VERSION_REPOSITORY)
-    private readonly versionRepository: DefinitionVersionRepositoryPort,
+    @Inject(DEFINITION_RELEASE_REPOSITORY)
+    private readonly releaseRepository: DefinitionReleaseRepositoryPort,
   ) {}
 
-  async execute(definitionId: string, version: number) {
-    const found = await this.versionRepository.getVersion(
+  async execute(definitionId: string, definitionHash: string) {
+    const found = await this.releaseRepository.getRelease(
       definitionId,
-      version,
+      definitionHash,
     );
     if (!found) {
       throw new UseCaseError(
         'DEFINITION_NOT_FOUND',
-        `definition version not found: ${definitionId}@${version}`,
+        `definition release not found: ${definitionId}@${definitionHash}`,
       );
     }
 
     return {
       definitionId: found.definitionId,
-      version: found.version,
-      status: found.status,
       definitionHash: found.definitionHash,
+      status: found.status,
       contentType: 'graph_json' as const,
       content: found.content,
       outputSchema: found.outputSchema,

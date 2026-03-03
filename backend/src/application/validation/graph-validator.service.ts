@@ -7,17 +7,27 @@ import type {
   NodePortDef,
   ValueType,
 } from '../catalog/node-catalog.types';
-import { GRAPH_JSON_SCHEMA_V1, ROUNDING_MODES } from './graph-json.schema';
-import type { GraphJsonV1, GraphNode, RoundingMode } from './graph-json.types';
+import {
+  BLUEPRINT_GRAPH_SCHEMA_V1,
+  ROUNDING_MODES,
+} from './graph-json.schema';
+import type {
+  GraphEdge,
+  GraphEntrypoint,
+  GraphJsonV1,
+  GraphNode,
+  GraphOutput,
+  RoundingMode,
+} from './graph-json.types';
 import type { ValidationIssue } from './validation-issue';
 
 const DECIMAL_STRING_REGEX = /^-?(0|[1-9]\d*)(\.\d+)?$/;
 
 /**
- * Graph 静态校验（M2）：
+ * BlueprintGraph 静态校验（M2）：
  * - 结构字段校验（Ajv）
  * - Node Catalog + paramsSchema 校验（Ajv）
- * - 唯一性、端口合法性、类型兼容、DAG 等跨字段校验（手写）
+ * - 唯一性、端口合法性、类型兼容、value-DAG 等跨字段校验（手写）
  */
 @Injectable()
 export class GraphValidatorService {
@@ -30,7 +40,7 @@ export class GraphValidatorService {
       strict: false,
     });
     addFormats(this.ajv);
-    this.validateGraphSchema = this.ajv.compile(GRAPH_JSON_SCHEMA_V1);
+    this.validateGraphSchema = this.ajv.compile(BLUEPRINT_GRAPH_SCHEMA_V1);
   }
 
   validateGraph(content: unknown): ValidationIssue[] {
@@ -45,22 +55,239 @@ export class GraphValidatorService {
       return issues;
     }
 
-    // 结构校验通过后，可以安全地按 GraphJsonV1 继续做跨字段校验。
     const graph = content as GraphJsonV1;
 
-    // 2) 唯一性校验
+    // 2) 唯一性校验（names/ids/keys）
     this.validateUniqueness(graph, issues);
 
-    // 3) variables.default typed 校验（MVP 要求）
-    this.validateVariableDefaults(graph, issues);
+    // 3) defaults typed 校验（MVP 要求）
+    this.validateDefaults(graph, issues);
 
     // 4) nodes：catalog + params 校验；并建立 nodeId -> (node, nodeDef) 索引
     const nodeIndex = this.buildNodeIndex(graph, issues);
 
-    // 5) edges：端口合法性、单入边、类型兼容
+    // 4.1) 内置节点的跨字段引用校验（globals/params/locals）
+    this.validateBuiltinReferences(graph, nodeIndex, issues);
+
+    // 5) value edges：端口合法性、单入边、类型兼容、value-DAG
+    const valueDag = this.validateValueEdges(graph, nodeIndex, issues);
+    if (valueDag && !isDag(valueDag.indegree, valueDag.adjacency)) {
+      issues.push({
+        code: 'GRAPH_VALUE_CYCLE_DETECTED',
+        severity: 'error',
+        path: '/edges',
+        message: 'cycle detected in value edges',
+      });
+    }
+
+    // 6) exec edges：端口合法性（允许环）
+    this.validateExecEdges(graph, nodeIndex, issues);
+
+    // 7) entrypoints：必须包含 main；to 必须指向 exec 输入端口
+    this.validateEntrypoints(graph.entrypoints, nodeIndex, issues);
+
+    // 8) outputs：from 必须合法；rounding 约束
+    this.validateOutputs(graph.outputs, nodeIndex, issues);
+
+    return issues;
+  }
+
+  private toSchemaIssue(err: ErrorObject): ValidationIssue {
+    // 结构错误统一归类为 GRAPH_SCHEMA_INVALID，避免把 Ajv keyword 暴露给调用方。
+    return {
+      code: 'GRAPH_SCHEMA_INVALID',
+      severity: 'error',
+      path: err.instancePath || '/',
+      message: err.message ?? 'graph schema invalid',
+    };
+  }
+
+  private validateUniqueness(graph: GraphJsonV1, issues: ValidationIssue[]) {
+    const globalNames = new Set<string>();
+    for (let i = 0; i < graph.globals.length; i++) {
+      const g = graph.globals[i];
+      if (globalNames.has(g.name)) {
+        issues.push({
+          code: 'GRAPH_DUPLICATE_GLOBAL_NAME',
+          severity: 'error',
+          path: `/globals/${i}/name`,
+          message: `duplicate global name: ${g.name}`,
+        });
+      } else {
+        globalNames.add(g.name);
+      }
+    }
+
+    const localNames = new Set<string>();
+    for (let i = 0; i < graph.locals.length; i++) {
+      const l = graph.locals[i];
+      if (localNames.has(l.name)) {
+        issues.push({
+          code: 'GRAPH_DUPLICATE_LOCAL_NAME',
+          severity: 'error',
+          path: `/locals/${i}/name`,
+          message: `duplicate local name: ${l.name}`,
+        });
+      } else {
+        localNames.add(l.name);
+      }
+    }
+
+    const entrypointKeys = new Set<string>();
+    for (let i = 0; i < graph.entrypoints.length; i++) {
+      const ep = graph.entrypoints[i];
+      if (entrypointKeys.has(ep.key)) {
+        issues.push({
+          code: 'GRAPH_DUPLICATE_ENTRYPOINT_KEY',
+          severity: 'error',
+          path: `/entrypoints/${i}/key`,
+          message: `duplicate entrypoint key: ${ep.key}`,
+        });
+      } else {
+        entrypointKeys.add(ep.key);
+      }
+
+      const paramNames = new Set<string>();
+      for (let j = 0; j < ep.params.length; j++) {
+        const p = ep.params[j];
+        if (paramNames.has(p.name)) {
+          issues.push({
+            code: 'GRAPH_DUPLICATE_ENTRYPOINT_PARAM_NAME',
+            severity: 'error',
+            path: `/entrypoints/${i}/params/${j}/name`,
+            message: `duplicate entrypoint param name: ${p.name}`,
+          });
+        } else {
+          paramNames.add(p.name);
+        }
+      }
+    }
+
+    const nodeIds = new Set<string>();
+    for (let i = 0; i < graph.nodes.length; i++) {
+      const n = graph.nodes[i];
+      if (nodeIds.has(n.id)) {
+        issues.push({
+          code: 'GRAPH_DUPLICATE_NODE_ID',
+          severity: 'error',
+          path: `/nodes/${i}/id`,
+          message: `duplicate node id: ${n.id}`,
+        });
+      } else {
+        nodeIds.add(n.id);
+      }
+    }
+
+    const outputKeys = new Set<string>();
+    for (let i = 0; i < graph.outputs.length; i++) {
+      const o = graph.outputs[i];
+      if (outputKeys.has(o.key)) {
+        issues.push({
+          code: 'GRAPH_DUPLICATE_OUTPUT_KEY',
+          severity: 'error',
+          path: `/outputs/${i}/key`,
+          message: `duplicate output key: ${o.key}`,
+        });
+      } else {
+        outputKeys.add(o.key);
+      }
+    }
+  }
+
+  private validateDefaults(graph: GraphJsonV1, issues: ValidationIssue[]) {
+    for (let i = 0; i < graph.globals.length; i++) {
+      const g = graph.globals[i];
+      if (g.default !== undefined && !isValidValueForType(g.valueType, g.default)) {
+        issues.push({
+          code: 'GRAPH_INVALID_DEFAULT',
+          severity: 'error',
+          path: `/globals/${i}/default`,
+          message: `default is invalid for type ${g.valueType}`,
+        });
+      }
+    }
+
+    for (let i = 0; i < graph.entrypoints.length; i++) {
+      const ep = graph.entrypoints[i];
+      for (let j = 0; j < ep.params.length; j++) {
+        const p = ep.params[j];
+        if (p.default !== undefined && !isValidValueForType(p.valueType, p.default)) {
+          issues.push({
+            code: 'GRAPH_INVALID_DEFAULT',
+            severity: 'error',
+            path: `/entrypoints/${i}/params/${j}/default`,
+            message: `default is invalid for type ${p.valueType}`,
+          });
+        }
+      }
+    }
+
+    for (let i = 0; i < graph.locals.length; i++) {
+      const l = graph.locals[i];
+      if (l.default !== undefined && !isValidValueForType(l.valueType, l.default)) {
+        issues.push({
+          code: 'GRAPH_INVALID_DEFAULT',
+          severity: 'error',
+          path: `/locals/${i}/default`,
+          message: `default is invalid for type ${l.valueType}`,
+        });
+      }
+    }
+  }
+
+  private buildNodeIndex(
+    graph: GraphJsonV1,
+    issues: ValidationIssue[],
+  ): Map<string, IndexedNode> {
+    const map = new Map<string, IndexedNode>();
+
+    for (let i = 0; i < graph.nodes.length; i++) {
+      const node = graph.nodes[i];
+
+      const nodeDef = this.nodeCatalogService.getNode(node.nodeType);
+      if (!nodeDef) {
+        issues.push({
+          code: 'GRAPH_NODE_NOT_IN_CATALOG',
+          severity: 'error',
+          path: `/nodes/${i}/nodeType`,
+          message: `node not in catalog: ${node.nodeType}`,
+        });
+      }
+
+      let paramsOk = true;
+      if (nodeDef) {
+        const paramsResult = this.nodeCatalogService.validateNodeParams(
+          node.nodeType,
+          node.params,
+        );
+        if (!paramsResult.ok) {
+          paramsOk = false;
+          for (const err of paramsResult.errors ?? []) {
+            issues.push({
+              code: 'GRAPH_NODE_PARAMS_INVALID',
+              severity: 'error',
+              path: joinPointer(`/nodes/${i}/params`, err.instancePath),
+              message: err.message ?? 'node params invalid',
+            });
+          }
+        }
+      }
+
+      map.set(node.id, { node, nodeIndex: i, nodeDef: nodeDef, paramsOk });
+    }
+
+    return map;
+  }
+
+  private validateValueEdges(
+    graph: GraphJsonV1,
+    nodeIndex: Map<string, IndexedNode>,
+    issues: ValidationIssue[],
+  ): { indegree: Map<string, number>; adjacency: Map<string, string[]> } | null {
     const incomingByToPort = new Map<string, number>();
     const adjacency = new Map<string, string[]>();
     const indegree = new Map<string, number>();
+
     for (const nodeId of nodeIndex.keys()) {
       adjacency.set(nodeId, []);
       indegree.set(nodeId, 0);
@@ -91,7 +318,7 @@ export class GraphValidatorService {
         continue;
       }
 
-      // DAG 用的边（只要 node 存在就参与拓扑判断）
+      // value DAG 用的边（只要 node 存在就参与拓扑判断）
       const fromAdj = adjacency.get(edge.from.nodeId);
       if (fromAdj) {
         fromAdj.push(edge.to.nodeId);
@@ -128,21 +355,18 @@ export class GraphValidatorService {
         continue;
       }
 
-      // 单入边（同一个 to.nodeId + to.port 只能接一条 edge）
       const toKey = `${edge.to.nodeId}::${edge.to.port}`;
-      const seen = incomingByToPort.get(toKey);
-      if (seen !== undefined) {
+      const prev = incomingByToPort.get(toKey) ?? 0;
+      if (prev >= 1) {
         issues.push({
           code: 'GRAPH_EDGE_TO_PORT_MULTIPLE',
           severity: 'error',
           path: `/edges/${i}/to`,
-          message: `input port already connected: ${edge.to.nodeId}.${edge.to.port}`,
+          message: `to port has multiple incoming edges: ${edge.to.nodeId}.${edge.to.port}`,
         });
-      } else {
-        incomingByToPort.set(toKey, i);
       }
+      incomingByToPort.set(toKey, prev + 1);
 
-      // 类型兼容
       if (!isAssignableValueType(fromPort.valueType, toPort.valueType)) {
         issues.push({
           code: 'GRAPH_TYPE_MISMATCH',
@@ -153,53 +377,292 @@ export class GraphValidatorService {
       }
     }
 
-    // 6) 每个节点的每个输入端口必须“恰好 1 条入边”
-    for (let i = 0; i < graph.nodes.length; i++) {
-      const node = graph.nodes[i];
-      const indexed = nodeIndex.get(node.id);
-      if (!indexed || !indexed.nodeDef) {
+    // 输入端口必须被连接（MVP 简化：无可选输入端口）
+    for (const indexed of nodeIndex.values()) {
+      if (!indexed.nodeDef) {
         continue;
       }
       for (const input of indexed.nodeDef.inputs) {
-        const key = `${node.id}::${input.name}`;
-        if (!incomingByToPort.has(key)) {
+        const toKey = `${indexed.node.id}::${input.name}`;
+        if (!incomingByToPort.has(toKey)) {
           issues.push({
             code: 'GRAPH_MISSING_INPUT_EDGE',
             severity: 'error',
-            path: `/nodes/${i}`,
-            message: `missing input edge: ${node.id}.${input.name}`,
+            path: `/nodes/${indexed.nodeIndex}/id`,
+            message: `missing edge for ${indexed.node.id}.${input.name}`,
           });
         }
       }
     }
 
-    // 7) outputs：from 合法性 + 类型兼容 + rounding 约束
-    for (let i = 0; i < graph.outputs.length; i++) {
-      const output = graph.outputs[i];
+    return { indegree, adjacency };
+  }
 
-      const fromNode = nodeIndex.get(output.from.nodeId);
+  private validateExecEdges(
+    graph: GraphJsonV1,
+    nodeIndex: Map<string, IndexedNode>,
+    issues: ValidationIssue[],
+  ) {
+    const outgoingByFromPort = new Map<string, number>();
+
+    for (let i = 0; i < graph.execEdges.length; i++) {
+      const edge = graph.execEdges[i];
+
+      const fromNode = nodeIndex.get(edge.from.nodeId);
       if (!fromNode) {
         issues.push({
-          code: 'GRAPH_OUTPUT_FROM_INVALID',
+          code: 'GRAPH_EXEC_EDGE_NODE_NOT_FOUND',
           severity: 'error',
-          path: `/outputs/${i}/from/nodeId`,
-          message: `output.from.nodeId not found: ${output.from.nodeId}`,
+          path: `/execEdges/${i}/from/nodeId`,
+          message: `from.nodeId not found: ${edge.from.nodeId}`,
         });
         continue;
       }
 
-      // 节点存在但不在 catalog 的情况，已经在 nodes 校验阶段报错；此处不再重复报 output 错误。
-      if (!fromNode.nodeDef) {
+      const toNode = nodeIndex.get(edge.to.nodeId);
+      if (!toNode) {
+        issues.push({
+          code: 'GRAPH_EXEC_EDGE_NODE_NOT_FOUND',
+          severity: 'error',
+          path: `/execEdges/${i}/to/nodeId`,
+          message: `to.nodeId not found: ${edge.to.nodeId}`,
+        });
         continue;
       }
 
-      const fromPort = findPort(fromNode.nodeDef.outputs, output.from.port);
+      if (!fromNode.nodeDef || !toNode.nodeDef) {
+        continue;
+      }
+
+      const fromKey = `${edge.from.nodeId}::${edge.from.port}`;
+      outgoingByFromPort.set(fromKey, (outgoingByFromPort.get(fromKey) ?? 0) + 1);
+      if ((outgoingByFromPort.get(fromKey) ?? 0) > 1) {
+        issues.push({
+          code: 'GRAPH_EXEC_EDGE_FROM_PORT_MULTIPLE',
+          severity: 'error',
+          path: `/execEdges/${i}/from`,
+          message: `exec from port has multiple outgoing edges: ${edge.from.nodeId}.${edge.from.port}`,
+        });
+      }
+
+      const fromPortOk = (fromNode.nodeDef.execOutputs ?? []).some(
+        (p) => p.name === edge.from.port,
+      );
+      if (!fromPortOk) {
+        issues.push({
+          code: 'GRAPH_EXEC_EDGE_PORT_NOT_FOUND',
+          severity: 'error',
+          path: `/execEdges/${i}/from/port`,
+          message: `from.exec port not found on node ${edge.from.nodeId}: ${edge.from.port}`,
+        });
+        continue;
+      }
+
+      const toPortOk = (toNode.nodeDef.execInputs ?? []).some(
+        (p) => p.name === edge.to.port,
+      );
+      if (!toPortOk) {
+        issues.push({
+          code: 'GRAPH_EXEC_EDGE_PORT_NOT_FOUND',
+          severity: 'error',
+          path: `/execEdges/${i}/to/port`,
+          message: `to.exec port not found on node ${edge.to.nodeId}: ${edge.to.port}`,
+        });
+      }
+    }
+  }
+
+  private validateBuiltinReferences(
+    graph: GraphJsonV1,
+    nodeIndex: Map<string, IndexedNode>,
+    issues: ValidationIssue[],
+  ) {
+    const globalsByName = new Map<string, ValueType>();
+    for (const g of graph.globals) {
+      globalsByName.set(g.name, g.valueType);
+    }
+
+    const localsByName = new Map<string, ValueType>();
+    for (const l of graph.locals) {
+      localsByName.set(l.name, l.valueType);
+    }
+
+    const entrypointParamTypesByName = new Map<string, Set<ValueType>>();
+    for (const ep of graph.entrypoints) {
+      for (const p of ep.params) {
+        const set = entrypointParamTypesByName.get(p.name) ?? new Set<ValueType>();
+        set.add(p.valueType);
+        entrypointParamTypesByName.set(p.name, set);
+      }
+    }
+
+    for (const indexed of nodeIndex.values()) {
+      if (!indexed.nodeDef || !indexed.paramsOk) {
+        continue;
+      }
+
+      const nodeType = indexed.node.nodeType;
+      const nodeNameParam = readNameParam(indexed.node.params);
+      if (!nodeNameParam) {
+        continue;
+      }
+
+      // inputs.globals.<type>
+      const globalType = parseTypedNodeValueType(nodeType, 'inputs.globals.');
+      if (globalType) {
+        const declared = globalsByName.get(nodeNameParam);
+        if (!declared) {
+          issues.push({
+            code: 'GRAPH_INPUT_GLOBAL_NOT_FOUND',
+            severity: 'error',
+            path: `/nodes/${indexed.nodeIndex}/params/name`,
+            message: `global is not declared: ${nodeNameParam}`,
+          });
+          continue;
+        }
+        if (!isAssignableValueType(declared, globalType)) {
+          issues.push({
+            code: 'GRAPH_INPUT_GLOBAL_TYPE_MISMATCH',
+            severity: 'error',
+            path: `/nodes/${indexed.nodeIndex}/params/name`,
+            message: `global type mismatch: ${declared} -> ${globalType}`,
+          });
+        }
+        continue;
+      }
+
+      // inputs.params.<type>
+      const paramType = parseTypedNodeValueType(nodeType, 'inputs.params.');
+      if (paramType) {
+        const declaredTypes = entrypointParamTypesByName.get(nodeNameParam);
+        if (!declaredTypes || declaredTypes.size === 0) {
+          issues.push({
+            code: 'GRAPH_INPUT_PARAM_NOT_FOUND',
+            severity: 'error',
+            path: `/nodes/${indexed.nodeIndex}/params/name`,
+            message: `entrypoint param is not declared: ${nodeNameParam}`,
+          });
+          continue;
+        }
+
+        const ok = [...declaredTypes].some((t) =>
+          isAssignableValueType(t, paramType),
+        );
+        if (!ok) {
+          issues.push({
+            code: 'GRAPH_INPUT_PARAM_TYPE_MISMATCH',
+            severity: 'error',
+            path: `/nodes/${indexed.nodeIndex}/params/name`,
+            message: `entrypoint param type mismatch: ${nodeNameParam}`,
+          });
+        }
+        continue;
+      }
+
+      // locals.get.<type> / locals.set.<type>
+      const localGetType = parseTypedNodeValueType(nodeType, 'locals.get.');
+      const localSetType = parseTypedNodeValueType(nodeType, 'locals.set.');
+      const localType = localGetType ?? localSetType;
+      if (localType) {
+        const declared = localsByName.get(nodeNameParam);
+        if (!declared) {
+          issues.push({
+            code: 'GRAPH_LOCAL_NOT_FOUND',
+            severity: 'error',
+            path: `/nodes/${indexed.nodeIndex}/params/name`,
+            message: `local is not declared: ${nodeNameParam}`,
+          });
+          continue;
+        }
+
+        const ok =
+          localGetType !== null && localGetType !== undefined
+            ? isAssignableValueType(declared, localType)
+            : isAssignableValueType(localType, declared);
+
+        if (!ok) {
+          issues.push({
+            code: 'GRAPH_LOCAL_TYPE_MISMATCH',
+            severity: 'error',
+            path: `/nodes/${indexed.nodeIndex}/params/name`,
+            message: `local type mismatch: ${declared} vs ${localType}`,
+          });
+        }
+      }
+    }
+  }
+
+  private validateEntrypoints(
+    entrypoints: GraphEntrypoint[],
+    nodeIndex: Map<string, IndexedNode>,
+    issues: ValidationIssue[],
+  ) {
+    if (!entrypoints.some((e) => e.key === 'main')) {
+      issues.push({
+        code: 'GRAPH_ENTRYPOINT_MISSING',
+        severity: 'error',
+        path: '/entrypoints',
+        message: 'missing entrypoint: main',
+      });
+    }
+
+    for (let i = 0; i < entrypoints.length; i++) {
+      const ep = entrypoints[i];
+      const target = nodeIndex.get(ep.to.nodeId);
+      if (!target) {
+        issues.push({
+          code: 'GRAPH_ENTRYPOINT_INVALID',
+          severity: 'error',
+          path: `/entrypoints/${i}/to/nodeId`,
+          message: `entrypoint target node not found: ${ep.to.nodeId}`,
+        });
+        continue;
+      }
+      if (!target.nodeDef) {
+        continue;
+      }
+      const ok = (target.nodeDef.execInputs ?? []).some(
+        (p) => p.name === ep.to.port,
+      );
+      if (!ok) {
+        issues.push({
+          code: 'GRAPH_ENTRYPOINT_INVALID',
+          severity: 'error',
+          path: `/entrypoints/${i}/to/port`,
+          message: `entrypoint target exec port not found: ${ep.to.nodeId}.${ep.to.port}`,
+        });
+      }
+    }
+  }
+
+  private validateOutputs(
+    outputs: GraphOutput[],
+    nodeIndex: Map<string, IndexedNode>,
+    issues: ValidationIssue[],
+  ) {
+    for (let i = 0; i < outputs.length; i++) {
+      const output = outputs[i];
+      const source = nodeIndex.get(output.from.nodeId);
+      if (!source) {
+        issues.push({
+          code: 'GRAPH_OUTPUT_FROM_INVALID',
+          severity: 'error',
+          path: `/outputs/${i}/from/nodeId`,
+          message: `output source node not found: ${output.from.nodeId}`,
+        });
+        continue;
+      }
+      if (!source.nodeDef) {
+        continue;
+      }
+
+      const fromPort = findPort(source.nodeDef.outputs, output.from.port);
       if (!fromPort) {
         issues.push({
           code: 'GRAPH_OUTPUT_FROM_INVALID',
           severity: 'error',
           path: `/outputs/${i}/from/port`,
-          message: `output.from.port not found on node ${output.from.nodeId}: ${output.from.port}`,
+          message: `output source port not found: ${output.from.nodeId}.${output.from.port}`,
         });
         continue;
       }
@@ -243,232 +706,6 @@ export class GraphValidatorService {
         }
       }
     }
-
-    // 8) DAG 校验（无环）
-    if (!isDag(indegree, adjacency)) {
-      issues.push({
-        code: 'GRAPH_CYCLE_DETECTED',
-        severity: 'error',
-        path: '/edges',
-        message: 'cycle detected in graph',
-      });
-    }
-
-    return issues;
-  }
-
-  private toSchemaIssue(err: ErrorObject): ValidationIssue {
-    if (err.instancePath === '/schemaVersion') {
-      return {
-        code: 'GRAPH_SCHEMA_VERSION_UNSUPPORTED',
-        severity: 'error',
-        path: '/schemaVersion',
-        message: 'schemaVersion is not supported (expected 1)',
-      };
-    }
-
-    // 结构错误统一归类为 GRAPH_SCHEMA_INVALID，避免把 Ajv keyword 暴露给调用方。
-    return {
-      code: 'GRAPH_SCHEMA_INVALID',
-      severity: 'error',
-      path: err.instancePath || '/',
-      message: err.message ?? 'graph schema invalid',
-    };
-  }
-
-  private validateUniqueness(graph: GraphJsonV1, issues: ValidationIssue[]) {
-    const variablePaths = new Set<string>();
-    for (let i = 0; i < graph.variables.length; i++) {
-      const v = graph.variables[i];
-      if (variablePaths.has(v.path)) {
-        issues.push({
-          code: 'GRAPH_DUPLICATE_VARIABLE_PATH',
-          severity: 'error',
-          path: `/variables/${i}/path`,
-          message: `duplicate variable path: ${v.path}`,
-        });
-      } else {
-        variablePaths.add(v.path);
-      }
-    }
-
-    const nodeIds = new Set<string>();
-    for (let i = 0; i < graph.nodes.length; i++) {
-      const n = graph.nodes[i];
-      if (nodeIds.has(n.id)) {
-        issues.push({
-          code: 'GRAPH_DUPLICATE_NODE_ID',
-          severity: 'error',
-          path: `/nodes/${i}/id`,
-          message: `duplicate node id: ${n.id}`,
-        });
-      } else {
-        nodeIds.add(n.id);
-      }
-    }
-
-    const outputKeys = new Set<string>();
-    for (let i = 0; i < graph.outputs.length; i++) {
-      const o = graph.outputs[i];
-      if (outputKeys.has(o.key)) {
-        issues.push({
-          code: 'GRAPH_DUPLICATE_OUTPUT_KEY',
-          severity: 'error',
-          path: `/outputs/${i}/key`,
-          message: `duplicate output key: ${o.key}`,
-        });
-      } else {
-        outputKeys.add(o.key);
-      }
-    }
-  }
-
-  private validateVariableDefaults(
-    graph: GraphJsonV1,
-    issues: ValidationIssue[],
-  ) {
-    for (let i = 0; i < graph.variables.length; i++) {
-      const variable = graph.variables[i];
-
-      // default 字段缺省表示“没有 default”；如果显式写了 default，就必须能通过 typed 校验。
-      if (!Object.prototype.hasOwnProperty.call(variable, 'default')) {
-        continue;
-      }
-
-      const defaultValue = (variable as { default?: unknown }).default;
-      if (!isValidValueForType(variable.valueType, defaultValue)) {
-        issues.push({
-          code: 'GRAPH_SCHEMA_INVALID',
-          severity: 'error',
-          path: `/variables/${i}/default`,
-          message: `default does not match valueType: ${variable.valueType}`,
-        });
-      }
-
-      // Ratio 需要额外范围校验（0..1）
-      if (variable.valueType === 'Ratio' && !isValidRatio(defaultValue)) {
-        issues.push({
-          code: 'GRAPH_TYPE_MISMATCH',
-          severity: 'error',
-          path: `/variables/${i}/default`,
-          message: 'Ratio must be within [0, 1]',
-        });
-      }
-    }
-  }
-
-  private buildNodeIndex(
-    graph: GraphJsonV1,
-    issues: ValidationIssue[],
-  ): Map<string, IndexedNode> {
-    const map = new Map<string, IndexedNode>();
-
-    // 变量声明：供 core.var.* 校验 path 与类型。
-    const variableByPath = new Map<string, { valueType: ValueType }>();
-    for (const v of graph.variables) {
-      variableByPath.set(v.path, { valueType: v.valueType });
-    }
-
-    for (let i = 0; i < graph.nodes.length; i++) {
-      const node = graph.nodes[i];
-      if (map.has(node.id)) {
-        // 重复 nodeId 已在 uniqueness 阶段报错；这里忽略后续重复项，避免索引被覆盖。
-        continue;
-      }
-
-      const nodeDef = this.nodeCatalogService.getNode(
-        node.nodeType,
-        node.nodeVersion,
-      );
-      if (!nodeDef) {
-        issues.push({
-          code: 'GRAPH_NODE_NOT_IN_CATALOG',
-          severity: 'error',
-          path: `/nodes/${i}`,
-          message: `node not in catalog: ${node.nodeType}@${node.nodeVersion}`,
-        });
-        map.set(node.id, { node, nodeIndex: i, paramsOk: false });
-        continue;
-      }
-
-      const paramsResult = this.nodeCatalogService.validateNodeParams(
-        node.nodeType,
-        node.nodeVersion,
-        node.params,
-      );
-      const paramsOk = paramsResult.ok;
-      if (!paramsResult.ok) {
-        for (const err of paramsResult.errors ?? []) {
-          issues.push({
-            code: 'GRAPH_NODE_PARAMS_INVALID',
-            severity: 'error',
-            path: joinPointer(`/nodes/${i}/params`, err.instancePath),
-            message: err.message ?? 'node params invalid',
-          });
-        }
-      }
-
-      // core.var.*：要求 params.path 存在于 variables 且 valueType 匹配
-      if (paramsOk && node.nodeType.startsWith('core.var.')) {
-        const path = getString(node.params?.['path']);
-        if (!path) {
-          issues.push({
-            code: 'GRAPH_NODE_PARAMS_INVALID',
-            severity: 'error',
-            path: `/nodes/${i}/params/path`,
-            message: 'params.path is required for variable node',
-          });
-        } else {
-          const declared = variableByPath.get(path);
-          if (!declared) {
-            issues.push({
-              code: 'GRAPH_VARIABLE_PATH_NOT_DECLARED',
-              severity: 'error',
-              path: `/nodes/${i}/params/path`,
-              message: `variable path not declared: ${path}`,
-            });
-          } else {
-            const expected = findPort(nodeDef.outputs, 'value')?.valueType;
-            if (expected && declared.valueType !== expected) {
-              issues.push({
-                code: 'GRAPH_VARIABLE_TYPE_MISMATCH',
-                severity: 'error',
-                path: `/nodes/${i}/params/path`,
-                message: `variable type mismatch: ${declared.valueType} (declared) != ${expected} (node)`,
-              });
-            }
-          }
-        }
-      }
-
-      // core.const.*：value 做 typed 校验（尤其 Decimal/Ratio）
-      if (paramsOk && node.nodeType.startsWith('core.const.')) {
-        const outputType = findPort(nodeDef.outputs, 'value')?.valueType;
-        const value = node.params?.['value'];
-        if (outputType) {
-          if (!isValidValueForType(outputType, value)) {
-            issues.push({
-              code: 'GRAPH_NODE_PARAMS_INVALID',
-              severity: 'error',
-              path: `/nodes/${i}/params/value`,
-              message: `const value does not match valueType: ${outputType}`,
-            });
-          }
-          if (outputType === 'Ratio' && !isValidRatio(value)) {
-            issues.push({
-              code: 'GRAPH_NODE_PARAMS_INVALID',
-              severity: 'error',
-              path: `/nodes/${i}/params/value`,
-              message: 'Ratio must be within [0, 1]',
-            });
-          }
-        }
-      }
-
-      map.set(node.id, { node, nodeIndex: i, nodeDef, paramsOk });
-    }
-
-    return map;
   }
 }
 
@@ -496,6 +733,41 @@ function isAssignableValueType(from: ValueType, to: ValueType): boolean {
   }
   // Ratio ⊂ Decimal
   return from === 'Ratio' && to === 'Decimal';
+}
+
+function readNameParam(params: unknown): string | null {
+  if (params === null || typeof params !== 'object') {
+    return null;
+  }
+  const record = params as Record<string, unknown>;
+  const name = record['name'];
+  return typeof name === 'string' && name.length > 0 ? name : null;
+}
+
+function parseTypedNodeValueType(
+  nodeType: string,
+  prefix: string,
+): ValueType | null {
+  if (!nodeType.startsWith(prefix)) {
+    return null;
+  }
+  const suffix = nodeType.slice(prefix.length);
+  switch (suffix) {
+    case 'decimal':
+      return 'Decimal';
+    case 'ratio':
+      return 'Ratio';
+    case 'string':
+      return 'String';
+    case 'boolean':
+      return 'Boolean';
+    case 'datetime':
+      return 'DateTime';
+    case 'json':
+      return 'Json';
+    default:
+      return null;
+  }
 }
 
 function isDag(
@@ -545,7 +817,7 @@ function isValidValueForType(valueType: ValueType, value: unknown): boolean {
     case 'Decimal':
       return isValidDecimal(value);
     case 'Ratio':
-      return isValidDecimal(value);
+      return isValidRatio(value);
     case 'String':
       return typeof value === 'string';
     case 'Boolean':
@@ -555,7 +827,6 @@ function isValidValueForType(valueType: ValueType, value: unknown): boolean {
     case 'Json':
       return true;
     default: {
-      // 穷尽保护：未来新增类型时，避免静默放过
       const _exhaustive: never = valueType;
       return _exhaustive;
     }
@@ -590,15 +861,10 @@ function isValidRatio(value: unknown): boolean {
       return true;
     }
     if (value.startsWith('1.')) {
-      // 1.000... 允许；只要小数部分全是 0
       const fractional = value.slice(2);
       return fractional.length > 0 && /^[0]+$/.test(fractional);
     }
     return false;
   }
   return false;
-}
-
-function getString(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null;
 }

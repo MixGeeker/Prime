@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ApplicationModule } from '../../../../application/application.module';
 import { AdminDefinitionsController } from './definitions.controller';
 import { AdminJobsController } from './jobs.controller';
+import { AdminDlqJobRequestedController } from './dlq.controller';
 
 /**
  * Admin API 模块（HTTP inbound）。
@@ -11,6 +12,10 @@ import { AdminJobsController } from './jobs.controller';
  */
 @Module({
   imports: [ApplicationModule],
-  controllers: [AdminDefinitionsController, AdminJobsController],
+  controllers: [
+    AdminDefinitionsController,
+    AdminJobsController,
+    AdminDlqJobRequestedController,
+  ],
 })
 export class AdminModule {}

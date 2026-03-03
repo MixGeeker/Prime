@@ -17,4 +17,30 @@ export type TryInsertJobResult =
 export interface JobRepositoryPort {
   getJob(jobId: string): Promise<JobRecord | null>;
   tryInsertRequested(params: NewJobRequested): Promise<TryInsertJobResult>;
+  markRunning(jobId: string): Promise<void>;
+  markSucceeded(params: {
+    jobId: string;
+    inputsHash: string;
+    outputsHash: string;
+    outputs: Record<string, unknown>;
+    computedAt: Date;
+    inputsSnapshot?: Record<string, unknown> | null;
+  }): Promise<void>;
+  markFailed(params: {
+    jobId: string;
+    inputsHash: string | null;
+    errorCode: string;
+    errorMessage: string;
+    failedAt: Date;
+  }): Promise<void>;
+
+  /**
+   * 清空旧 job 的大字段快照（inputs_snapshot_json / outputs_json），用于 retention。
+   * - 不删除 jobs 记录（避免破坏幂等与追溯）
+   * - 返回实际更新条数
+   */
+  clearSnapshotsOlderThan(params: {
+    cutoff: Date;
+    limit: number;
+  }): Promise<number>;
 }

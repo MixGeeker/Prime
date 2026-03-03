@@ -8,7 +8,7 @@
 - 读取/订阅业务模块数据：汇率、公司配置、商品/库存/成本、对手价抓取等。
 - 解析与标准化：Decimal（字符串）规范化、缺失值与降级策略；币种/方向等领域语义由集成方自行管理。
 - 组装 `inputs`（含 `inputs._meta`），并发送 job（MQ 或调用一个 job sender SDK）。
-- （可选）输出 Variable Catalog 给 Editor，用于变量选择与提示。
+- （可选）输出 Inputs Catalog 给 Editor，用于输入字段选择与提示。
 
 ### 1.2 Provider 不负责
 - 不做图执行与确定性计算（由 Compute Engine 做）。
@@ -18,19 +18,19 @@
 
 ## 2. 标准 inputs 结构（强烈建议）
 
-> 目标：让所有 Definition 都能用一致的命名空间，降低口径漂移与编辑器接入成本。
+> 目标：让 Provider 的 payload 能稳定对接 Compute Engine 的强类型输入契约（见 `GRAPH_SCHEMA.md` 与 `HASHING_SPEC.md`）。
 
-建议约定：
-- `inputs.globals.*`：全局变量（公司信息、系统开关、汇率快照、对手价快照等）
-- `inputs.facts.*`：对象事实（某个商品/门店/订单的事实数据）
-- `inputs.params.*`：调用方参数（如目标利润率、渠道、阈值、策略参数）
-- `inputs.resolved.*`：resolver 输出（如 HTTP 抓取结果/清洗结果）
-- `inputs._meta.*`：来源元信息（用于追溯/回放，必须进入 `inputsHash`）
+建议约定 job payload 的 `inputs` 结构：
+- `inputs.globals`：全局输入（对应 BlueprintGraph 的 `globals[]` 声明）
+- `inputs.params`：入口参数（对应 BlueprintGraph 的 `entrypoints[key].params[]` 声明）
+- **允许多余字段**：`inputs` 可携带其它字段（例如 `inputs._meta`），但引擎默认不会读取，也不会把未声明字段纳入 `inputsHash`。
 
 `inputs._meta` 建议包含：
 - `asOf`: string（ISO 时间点，表示 Provider 用于读取 facts 的基准时间）
 - `sources`: `Array<{ name: string, ref?: string, fetchedAt?: string }>`（例如 `fx_rates` 的来源/ID）
 - `notes?`: string（可选，用于排障）
+
+> 若希望某些元信息进入 `inputsHash`，应把它们声明为 `globals/params`（可用 `Json` 聚合），并通过 `inputs.globals/inputs.params` 传入。
 
 ---
 
@@ -70,26 +70,20 @@ Provider 直接发布 `compute.job.requested.v1` 到 `compute.commands`（见 `A
 
 ---
 
-## 5. Variable Catalog（供 Editor 使用，建议）
+## 5. Inputs Catalog（供 Editor 使用，可选）
 
 ### 5.1 目的
-让 Editor 能“选变量而不是手写路径”，并在连线时做类型提示。
+让 Editor 能“选输入字段而不是手写 key”，并在建图时做类型提示/示例展示。
 
 ### 5.2 建议格式
 - `schemaVersion`
-- `variables`: `Array<{
-    path: string,
-    valueType: string,
-    required?: boolean,
-    description?: string,
-    example?: unknown
-  }>`
+- `globals`: `Array<{ name: string, valueType: string, description?: string, example?: unknown }>`
+- `params`: `Array<{ name: string, valueType: string, description?: string, example?: unknown }>`
 
 示例（片段）：
-- `inputs.globals.fx_rates.usd_to_ves`: `Decimal`
-- `inputs.globals.company.name`: `String`
-- `inputs.facts.product.cost`: `Decimal`
-- `inputs.facts.product.currency`: `String`
+- `globals.fxRate`: `Decimal`
+- `globals.companyName`: `String`
+- `params.productId`: `String`
 
 ---
 
@@ -100,12 +94,13 @@ Provider 直接发布 `compute.job.requested.v1` 到 `compute.commands`（见 `A
 建议：
 - 缓存/限流：避免频繁抓取导致不稳定。
 - 清洗/去噪：异常值、缺失值、置信度。
-- 元信息：将 `fetchedAt/source/confidence` 写入 `inputs._meta`，并进入 `inputsHash`。
+- 元信息：可将 `fetchedAt/source/confidence` 写入 `inputs._meta`（允许多余字段）；注意 Compute Engine 默认不会读取/也不会把未声明字段纳入 `inputsHash`。
+  - 若希望该元信息进入 `inputsHash`：应把它们声明为 `globals`（例如声明一个 `globals.meta: Json`）并通过 `inputs.globals.meta` 传入。
 
 ---
 
 ## 7. 回放与对账
 
 为了可追溯：
-- Provider 必须把影响结果的 facts 都注入到 inputs（或注入其可定位的 ref + 快照关键字段）。
-- Provider 必须保证 `inputs._meta` 足以定位当时的来源与时间点（尤其是汇率与对手价）。
+- Provider 必须把**影响结果**的内容注入到本次 Definition 声明的 `globals/params`（否则引擎不会读取，也不会进入 `inputsHash`）。
+- `inputs._meta` 允许携带审计信息，但默认不进入 `inputsHash`；需要对账/回放的字段应进入声明项（或聚合到一个 `Json` 声明项里）。

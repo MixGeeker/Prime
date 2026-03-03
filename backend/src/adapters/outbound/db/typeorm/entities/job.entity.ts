@@ -25,11 +25,8 @@ export class JobEntity {
   @Column({ name: 'definition_id', type: 'text' })
   definitionId!: string;
 
-  @Column({ name: 'version_used', type: 'int' })
-  versionUsed!: number;
-
-  @Column({ name: 'definition_hash', type: 'text', nullable: true })
-  definitionHash!: string | null;
+  @Column({ name: 'definition_hash_used', type: 'text' })
+  definitionHashUsed!: string;
 
   @Column({ name: 'inputs_hash', type: 'text', nullable: true })
   inputsHash!: string | null;

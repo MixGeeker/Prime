@@ -1,3 +1,10 @@
+/**
+ * 值规范化（canonicalize）。
+ *
+ * 目的：将“语义等价但表示不同”的输入统一成稳定表示，用于：
+ * - `inputsHash/outputsHash/definitionHash` 的可对账性（跨语言一致）
+ * - runner 运行期对输入/输出做确定性校验
+ */
 import type { ValueType } from '../catalog/node-catalog.types';
 
 const DECIMAL_REGEX = /^([+-]?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/;

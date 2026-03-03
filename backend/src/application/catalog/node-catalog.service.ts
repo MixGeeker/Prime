@@ -4,7 +4,7 @@ import addFormats from 'ajv-formats';
 import { NODE_CATALOG_V1 } from './node-catalog.v1';
 import type { NodeCatalog, NodeDef } from './node-catalog.types';
 
-export type NodeKey = `${string}@${number}`;
+export type NodeKey = string;
 
 export interface ParamsValidationResult {
   ok: boolean;
@@ -37,7 +37,7 @@ export class NodeCatalogService {
     addFormats(this.ajv);
 
     for (const node of this.catalog.nodes) {
-      const key = this.getNodeKey(node.nodeType, node.nodeVersion);
+      const key = this.getNodeKey(node.nodeType);
       if (this.nodesByKey.has(key)) {
         throw new Error(`Duplicate node in catalog: ${key}`);
       }
@@ -54,16 +54,15 @@ export class NodeCatalogService {
     return this.catalog;
   }
 
-  getNode(nodeType: string, nodeVersion: number): NodeDef | undefined {
-    return this.nodesByKey.get(this.getNodeKey(nodeType, nodeVersion));
+  getNode(nodeType: string): NodeDef | undefined {
+    return this.nodesByKey.get(this.getNodeKey(nodeType));
   }
 
   validateNodeParams(
     nodeType: string,
-    nodeVersion: number,
     params: unknown,
   ): ParamsValidationResult {
-    const node = this.getNode(nodeType, nodeVersion);
+    const node = this.getNode(nodeType);
     if (!node) {
       return {
         ok: false,
@@ -101,7 +100,7 @@ export class NodeCatalogService {
       };
     }
 
-    const key = this.getNodeKey(nodeType, nodeVersion);
+    const key = this.getNodeKey(nodeType);
     const validate = this.paramsValidatorsByKey.get(key);
     if (!validate) {
       // 理论上不会发生：有 paramsSchema 就必定会编译出 validate。
@@ -126,8 +125,8 @@ export class NodeCatalogService {
     return { ok: false, errors: validate.errors ?? [] };
   }
 
-  getNodeKey(nodeType: string, nodeVersion: number): NodeKey {
-    return `${nodeType}@${nodeVersion}`;
+  getNodeKey(nodeType: string): NodeKey {
+    return nodeType;
   }
 }
 
