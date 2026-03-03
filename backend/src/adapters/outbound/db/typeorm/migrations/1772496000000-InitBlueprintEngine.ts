@@ -7,8 +7,8 @@ import type { MigrationInterface, QueryRunner } from 'typeorm';
  * - definitions / definition_drafts / definition_releases
  * - jobs（幂等存根 + 结果存档）/ outbox（可靠发布）
  */
-export class InitBlueprintEngine0000000000000 implements MigrationInterface {
-  name = 'InitBlueprintEngine0000000000000';
+export class InitBlueprintEngine1772496000000 implements MigrationInterface {
+  name = 'InitBlueprintEngine1772496000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

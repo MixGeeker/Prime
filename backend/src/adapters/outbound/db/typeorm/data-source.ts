@@ -16,7 +16,7 @@ import { DefinitionEntity } from './entities/definition.entity';
 import { DefinitionReleaseEntity } from './entities/definition-release.entity';
 import { JobEntity } from './entities/job.entity';
 import { OutboxEntity } from './entities/outbox.entity';
-import { InitBlueprintEngine0000000000000 } from './migrations/0000000000000-InitBlueprintEngine';
+import { InitBlueprintEngine1772496000000 } from './migrations/1772496000000-InitBlueprintEngine';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -34,9 +34,7 @@ export const ComputeEngineDataSource = new DataSource({
     OutboxEntity,
   ],
   // 显式注册 migrations，避免运行时扫描导致顺序不一致。
-  migrations: [InitBlueprintEngine0000000000000],
+  migrations: [InitBlueprintEngine1772496000000],
   synchronize: false,
   migrationsRun: false,
 });
-
-export default ComputeEngineDataSource;
