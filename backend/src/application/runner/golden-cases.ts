@@ -61,7 +61,11 @@ function run() {
       },
     ],
     outputs: [
-      { key: 'x', valueType: 'Decimal', from: { nodeId: 'n_get', port: 'value' } },
+      {
+        key: 'x',
+        valueType: 'Decimal',
+        from: { nodeId: 'n_get', port: 'value' },
+      },
     ],
   };
 
@@ -137,7 +141,11 @@ function run() {
       },
     ],
     outputs: [
-      { key: 'i', valueType: 'Decimal', from: { nodeId: 'n_get', port: 'value' } },
+      {
+        key: 'i',
+        valueType: 'Decimal',
+        from: { nodeId: 'n_get', port: 'value' },
+      },
     ],
   };
 
@@ -159,8 +167,16 @@ function run() {
     locals: [],
     nodes: [
       { id: 'n_return', nodeType: 'flow.return' },
-      { id: 'n_price', nodeType: 'core.const.decimal', params: { value: '1.23' } },
-      { id: 'n_currency', nodeType: 'core.const.string', params: { value: 'USD' } },
+      {
+        id: 'n_price',
+        nodeType: 'core.const.decimal',
+        params: { value: '1.23' },
+      },
+      {
+        id: 'n_currency',
+        nodeType: 'core.const.string',
+        params: { value: 'USD' },
+      },
     ],
     edges: [],
     execEdges: [],
@@ -293,7 +309,11 @@ function run() {
     edges: [],
     execEdges: [],
     outputs: [
-      { key: 'v', valueType: 'Decimal', from: { nodeId: 'n_v', port: 'value' } },
+      {
+        key: 'v',
+        valueType: 'Decimal',
+        from: { nodeId: 'n_v', port: 'value' },
+      },
     ],
   };
 
@@ -339,7 +359,11 @@ function run() {
       },
     ],
     outputs: [
-      { key: 'v', valueType: 'Decimal', from: { nodeId: 'n_call_c', port: 'decimal0' } },
+      {
+        key: 'v',
+        valueType: 'Decimal',
+        from: { nodeId: 'n_call_c', port: 'decimal0' },
+      },
     ],
   };
 
@@ -385,7 +409,11 @@ function run() {
       },
     ],
     outputs: [
-      { key: 'v', valueType: 'Decimal', from: { nodeId: 'n_call_b', port: 'decimal0' } },
+      {
+        key: 'v',
+        valueType: 'Decimal',
+        from: { nodeId: 'n_call_b', port: 'decimal0' },
+      },
     ],
   };
 

@@ -40,4 +40,3 @@ export const LOCALS_SET_BOOLEAN_V1: NodeImplementation = {
     return { kind: 'continue', port: 'out' };
   },
 };
-

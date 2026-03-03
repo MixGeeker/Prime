@@ -20,4 +20,3 @@ export const FLOW_BRANCH_V1: NodeImplementation = {
     return { kind: 'continue', port: cond ? 'true' : 'false' };
   },
 };
-

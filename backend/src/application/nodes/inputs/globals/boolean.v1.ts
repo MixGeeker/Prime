@@ -39,4 +39,3 @@ export const INPUTS_GLOBALS_BOOLEAN_V1: NodeImplementation = {
     };
   },
 };
-

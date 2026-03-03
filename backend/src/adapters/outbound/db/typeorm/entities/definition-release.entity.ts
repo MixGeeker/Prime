@@ -47,4 +47,3 @@ export class DefinitionReleaseEntity {
   @Column({ name: 'deprecated_reason', type: 'text', nullable: true })
   deprecatedReason!: string | null;
 }
-

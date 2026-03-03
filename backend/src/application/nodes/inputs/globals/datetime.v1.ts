@@ -39,4 +39,3 @@ export const INPUTS_GLOBALS_DATETIME_V1: NodeImplementation = {
     };
   },
 };
-

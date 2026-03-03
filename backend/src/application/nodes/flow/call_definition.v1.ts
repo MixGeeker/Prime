@@ -5,7 +5,13 @@ import { RunnerExecutionError } from '../../runner/runner.error';
 import { getString } from '../shared/value-parsers';
 import { isPlainObject } from '../../hashing/canonicalize';
 
-type ExposeKey = 'decimal' | 'ratio' | 'string' | 'boolean' | 'datetime' | 'json';
+type ExposeKey =
+  | 'decimal'
+  | 'ratio'
+  | 'string'
+  | 'boolean'
+  | 'datetime'
+  | 'json';
 
 const EXPOSE_SLOTS: Array<{
   key: ExposeKey;
@@ -99,7 +105,8 @@ export const FLOW_CALL_DEFINITION_V1: NodeImplementation = {
   evaluate({ node, inputs, runtime }) {
     const definitionId = getString(node.params?.['definitionId']);
     const definitionHash = getString(node.params?.['definitionHash']);
-    const entrypointKey = getString(node.params?.['entrypointKey']) ?? undefined;
+    const entrypointKey =
+      getString(node.params?.['entrypointKey']) ?? undefined;
 
     if (!definitionId || !definitionHash) {
       throw new RunnerExecutionError(
@@ -133,35 +140,56 @@ export const FLOW_CALL_DEFINITION_V1: NodeImplementation = {
       },
     });
 
-    const calleeOutputs = callee.outputs ?? {};
+    const rawCalleeOutputs = callee.outputs;
+    if (
+      rawCalleeOutputs !== undefined &&
+      rawCalleeOutputs !== null &&
+      !isPlainObject(rawCalleeOutputs)
+    ) {
+      throw new RunnerExecutionError(
+        'RUNNER_DETERMINISTIC_ERROR',
+        `callee outputs must be an object: ${definitionId}@${definitionHash}`,
+      );
+    }
+
+    const calleeOutputs: Record<string, unknown> = isPlainObject(
+      rawCalleeOutputs,
+    )
+      ? rawCalleeOutputs
+      : {};
 
     const result: Record<string, unknown> = {
       outputs: calleeOutputs,
     };
 
-    const exposeOutputs = isPlainObject(node.params?.['exposeOutputs'])
-      ? (node.params?.['exposeOutputs'] as Record<string, unknown>)
+    const exposeOutputsRaw = node.params?.['exposeOutputs'];
+    const exposeOutputs = isPlainObject(exposeOutputsRaw)
+      ? exposeOutputsRaw
       : null;
 
     for (const slot of EXPOSE_SLOTS) {
-      const list = exposeOutputs ? exposeOutputs[slot.key] : undefined;
-      if (!Array.isArray(list) || list.length === 0) {
+      const listRaw = exposeOutputs ? exposeOutputs[slot.key] : undefined;
+      if (
+        !Array.isArray(listRaw) ||
+        listRaw.length === 0 ||
+        !listRaw.every(
+          (v): v is string => typeof v === 'string' && v.length > 0,
+        )
+      ) {
         continue;
       }
 
+      const list = listRaw;
       for (let i = 0; i < list.length; i++) {
         const outputKey = list[i];
-        if (typeof outputKey !== 'string' || outputKey.length === 0) {
-          continue;
-        }
-        if (!Object.prototype.hasOwnProperty.call(calleeOutputs, outputKey)) {
+        if (!Object.hasOwn(calleeOutputs, outputKey)) {
           throw new RunnerExecutionError(
             'RUNNER_DETERMINISTIC_ERROR',
             `callee output not found: ${definitionId}@${definitionHash} outputs.${outputKey}`,
           );
         }
 
-        const rawValue = (calleeOutputs as Record<string, unknown>)[outputKey];
+        const rawValue = calleeOutputs[outputKey];
         const value = canonicalizeChosenValue(
           slot.valueType,
           rawValue,
@@ -177,4 +205,3 @@ export const FLOW_CALL_DEFINITION_V1: NodeImplementation = {
     return { kind: 'continue', port: 'out' };
   },
 };
-

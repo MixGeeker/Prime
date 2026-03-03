@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { HealthController } from './health/health.controller';
 import { AdminModule } from './admin/admin.module';
 import { CatalogModule } from './catalog/catalog.module';
+import { ReadinessService } from './health/readiness.service';
+import { DbModule } from '../../outbound/db/db.module';
 
 /**
  * HTTP Inbound 适配器模块：
@@ -10,7 +12,8 @@ import { CatalogModule } from './catalog/catalog.module';
  * - catalog：节点目录（M2）
  */
 @Module({
-  imports: [AdminModule, CatalogModule],
+  imports: [DbModule, AdminModule, CatalogModule],
   controllers: [HealthController],
+  providers: [ReadinessService],
 })
 export class HttpInboundModule {}

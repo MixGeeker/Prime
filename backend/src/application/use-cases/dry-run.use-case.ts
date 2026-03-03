@@ -90,12 +90,11 @@ export class DryRunUseCase {
       resolved.definitionRefUsed.definitionId !== '__inline__'
         ? resolved.definitionRefUsed
         : undefined;
-    const dependencyBundle = await this.definitionDependenciesService.buildRunnerBundle(
-      {
+    const dependencyBundle =
+      await this.definitionDependenciesService.buildRunnerBundle({
         rootContent: resolved.content,
         rootRef,
-      },
-    );
+      });
 
     let runnerOutputs: Record<string, unknown>;
     try {

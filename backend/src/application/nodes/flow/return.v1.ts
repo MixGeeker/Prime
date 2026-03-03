@@ -18,4 +18,3 @@ export const FLOW_RETURN_V1: NodeImplementation = {
     return { kind: 'return' };
   },
 };
-

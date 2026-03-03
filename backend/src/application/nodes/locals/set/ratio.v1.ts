@@ -40,4 +40,3 @@ export const LOCALS_SET_RATIO_V1: NodeImplementation = {
     return { kind: 'continue', port: 'out' };
   },
 };
-

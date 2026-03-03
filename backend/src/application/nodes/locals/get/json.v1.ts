@@ -33,4 +33,3 @@ export const LOCALS_GET_JSON_V1: NodeImplementation = {
     };
   },
 };
-

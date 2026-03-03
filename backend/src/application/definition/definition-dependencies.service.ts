@@ -127,7 +127,9 @@ export class DefinitionDependenciesService {
 
       const issues: ValidationIssue[] = [];
 
-      for (const exposeKey of Object.keys(EXPOSE_KEY_TO_VALUE_TYPE) as ExposeKey[]) {
+      for (const exposeKey of Object.keys(
+        EXPOSE_KEY_TO_VALUE_TYPE,
+      ) as ExposeKey[]) {
         const requested = callNode.exposeOutputs[exposeKey];
         if (!requested || requested.length === 0) {
           continue;
@@ -188,7 +190,11 @@ export class DefinitionDependenciesService {
       }
 
       visiting.add(key);
-      const release = await loadReleaseOrThrow(definitionId, definitionHash, context);
+      const release = await loadReleaseOrThrow(
+        definitionId,
+        definitionHash,
+        context,
+      );
       const graph = release.content as unknown as GraphJsonV1;
 
       for (const callNode of collectCallDefinitionNodes(graph)) {
@@ -231,11 +237,18 @@ export class DefinitionDependenciesService {
     // 先校验 root 的 call nodes（root 可能是 inline definition）
     for (const callNode of collectCallDefinitionNodes(rootGraph)) {
       // rootRef 存在时，禁止 root 直接引用自己（会被 cycle 检测兜底）
-      if (rootKey && `${callNode.definitionId}@${callNode.definitionHash}` === rootKey) {
+      if (
+        rootKey &&
+        `${callNode.definitionId}@${callNode.definitionHash}` === rootKey
+      ) {
         throw new UseCaseError(
           'DEFINITION_DEPENDENCY_CYCLE',
           `dependency cycle detected: ${rootKey} -> ${rootKey}`,
-          { cycle: [rootKey, rootKey], nodeId: callNode.nodeId, nodeIndex: callNode.nodeIndex },
+          {
+            cycle: [rootKey, rootKey],
+            nodeId: callNode.nodeId,
+            nodeIndex: callNode.nodeIndex,
+          },
         );
       }
 
@@ -249,10 +262,18 @@ export class DefinitionDependenciesService {
         callee.content as unknown as GraphJsonV1,
       );
       if (issues.length > 0) {
-        throw new UseCaseError('DEFINITION_INVALID', 'definition validation failed', issues);
+        throw new UseCaseError(
+          'DEFINITION_INVALID',
+          'definition validation failed',
+          issues,
+        );
       }
 
-      await visitRelease(callNode.definitionId, callNode.definitionHash, rootKey ? [rootKey] : []);
+      await visitRelease(
+        callNode.definitionId,
+        callNode.definitionHash,
+        rootKey ? [rootKey] : [],
+      );
     }
 
     const keys = [...releaseByKey.keys()].sort((a, b) => a.localeCompare(b));
@@ -293,7 +314,10 @@ function collectCallDefinitionNodes(graph: GraphJsonV1): CallNodeRef[] {
     const definitionHash = node.params['definitionHash'];
     const entrypointKey = node.params['entrypointKey'];
 
-    if (typeof definitionId !== 'string' || typeof definitionHash !== 'string') {
+    if (
+      typeof definitionId !== 'string' ||
+      typeof definitionHash !== 'string'
+    ) {
       continue;
     }
 
@@ -302,8 +326,11 @@ function collectCallDefinitionNodes(graph: GraphJsonV1): CallNodeRef[] {
     if (isPlainObject(exposeValue)) {
       for (const key of Object.keys(EXPOSE_KEY_TO_VALUE_TYPE) as ExposeKey[]) {
         const list = exposeValue[key];
-        if (Array.isArray(list) && list.every((v) => typeof v === 'string')) {
-          exposeOutputs[key] = list as string[];
+        if (
+          Array.isArray(list) &&
+          list.every((v): v is string => typeof v === 'string')
+        ) {
+          exposeOutputs[key] = list;
         }
       }
     }
@@ -313,7 +340,8 @@ function collectCallDefinitionNodes(graph: GraphJsonV1): CallNodeRef[] {
       nodeIndex: i,
       definitionId,
       definitionHash,
-      entrypointKey: typeof entrypointKey === 'string' ? entrypointKey : undefined,
+      entrypointKey:
+        typeof entrypointKey === 'string' ? entrypointKey : undefined,
       exposeOutputs,
     });
   }

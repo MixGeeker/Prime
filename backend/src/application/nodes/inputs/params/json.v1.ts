@@ -39,4 +39,3 @@ export const INPUTS_PARAMS_JSON_V1: NodeImplementation = {
     };
   },
 };
-

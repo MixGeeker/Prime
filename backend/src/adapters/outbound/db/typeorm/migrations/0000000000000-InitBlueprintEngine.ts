@@ -143,4 +143,3 @@ export class InitBlueprintEngine0000000000000 implements MigrationInterface {
     await queryRunner.query(`DROP TABLE "definitions"`);
   }
 }
-

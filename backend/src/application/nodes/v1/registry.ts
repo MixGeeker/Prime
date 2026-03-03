@@ -29,7 +29,10 @@ export const NODE_IMPLEMENTATIONS_V1: NodeImplementation[] = [
   ...CORE_NODE_IMPLEMENTATIONS_V1,
 ];
 
-const implementationsByKey = new Map<NodeImplementationKey, NodeImplementation>();
+const implementationsByKey = new Map<
+  NodeImplementationKey,
+  NodeImplementation
+>();
 for (const impl of NODE_IMPLEMENTATIONS_V1) {
   const key: NodeImplementationKey = impl.def.nodeType;
   if (implementationsByKey.has(key)) {

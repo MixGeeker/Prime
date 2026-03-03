@@ -318,3 +318,32 @@
 - 一套 DB 迁移与运维说明（含 retention 配置与清理任务）
 - 一组 hashing golden cases（跨语言对账基础）
 - 一份 Node Catalog（API 或包）与 validate 错误码对照表
+
+---
+
+## 5. 内网启用 Runbook（可靠性优先）
+
+### 5.1 推荐部署拓扑（按 Worker 角色拆分）
+- HTTP（Admin/Catalog/health/ready/metrics）：`npm run start:prod`
+- Consumer Worker（消费 job.requested）：`WORKER_ROLES=consumer npm run start:worker:prod`
+- Dispatcher Worker（outbox 发布结果事件）：`WORKER_ROLES=dispatcher npm run start:worker:prod`
+- Maintenance Worker（retention cleaner）：`WORKER_ROLES=maintenance npm run start:worker:prod`
+
+> 说明：拆分的收益是故障域隔离（dispatcher 抖动不影响 consumer 吞吐；maintenance 不影响计算）。
+
+### 5.2 探活与就绪（K8s/LB）
+- `/health`：只表示进程存活（不探测外部依赖）
+- `/ready`：探测 **DB + RabbitMQ** 连通性；失败返回 503，并带上依赖错误与延迟（用于排障）
+
+### 5.3 关键指标（建议告警）
+- MQ：`compute_mq_connection_state`（role=consumer/dispatcher 为 0 表示断连）
+- MQ：`compute_mq_reconnect_total` 短时间激增（网络抖动/权限/拓扑异常）
+- Outbox：`compute_outbox_pending_gauge` 持续上升（发布阻塞/下游不可用）
+- Outbox：`compute_outbox_failed_gauge` 上升（发布失败，进入重试）
+- Job：`compute_job_failed_total`（按 error_code）与 `compute_job_execution_duration_seconds`
+
+### 5.4 演练清单（上线前必须跑一遍）
+1. 正常链路：投递 job → jobs 状态变更 → outbox sent → 下游收到 succeeded/failed
+2. MQ 断开 30s 再恢复：consumer/dispatcher 自动恢复（无需重启进程）
+3. Worker 重启：重复投递同 jobId 不重复执行（幂等）
+4. Dispatcher 在 publish 后崩溃：允许重复事件；下游必须按 `messageId=outbox.id` 去重

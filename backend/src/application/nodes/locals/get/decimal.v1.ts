@@ -33,4 +33,3 @@ export const LOCALS_GET_DECIMAL_V1: NodeImplementation = {
     };
   },
 };
-

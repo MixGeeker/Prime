@@ -121,8 +121,8 @@ export class HashingService {
       };
     }
 
-    const globalsContainer = (rawGlobals ?? {}) as Record<string, unknown>;
-    const paramsContainer = (rawParams ?? {}) as Record<string, unknown>;
+    const globalsContainer: Record<string, unknown> = rawGlobals ?? {};
+    const paramsContainer: Record<string, unknown> = rawParams ?? {};
 
     const globalsSnapshot = this.buildInputValuesSnapshot(
       graph.globals,
@@ -183,7 +183,7 @@ export class HashingService {
     const canonicalizedOutputs: Record<string, unknown> = {};
 
     for (const outputSpec of sortedSpecs) {
-      if (!Object.prototype.hasOwnProperty.call(outputs, outputSpec.key)) {
+      if (!Object.hasOwn(outputs, outputSpec.key)) {
         return {
           ok: false,
           message: `missing output: ${outputSpec.key}`,
@@ -262,10 +262,10 @@ export class HashingService {
     const values: Record<string, unknown> = {};
 
     for (const def of sorted) {
-      const rawValue = Object.prototype.hasOwnProperty.call(container, def.name)
+      const rawValue = Object.hasOwn(container, def.name)
         ? container[def.name]
         : undefined;
-      const hasDefault = Object.prototype.hasOwnProperty.call(def, 'default');
+      const hasDefault = Object.hasOwn(def, 'default');
 
       let effectiveValue: unknown;
       if (rawValue === undefined) {
@@ -322,7 +322,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function normalizeInputDefs(defs: GraphInputDef[]): GraphInputDef[] {
   return [...(defs ?? [])]
     .map((def) => {
-      if (Object.prototype.hasOwnProperty.call(def, 'default')) {
+      if (Object.hasOwn(def, 'default')) {
         const defaultValue = (def as { default?: unknown }).default;
         if (defaultValue !== null && defaultValue !== undefined) {
           const canonicalized = canonicalizeValueByType(
@@ -339,7 +339,9 @@ function normalizeInputDefs(defs: GraphInputDef[]): GraphInputDef[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function normalizeEntrypoints(entrypoints: GraphEntrypoint[]): GraphEntrypoint[] {
+function normalizeEntrypoints(
+  entrypoints: GraphEntrypoint[],
+): GraphEntrypoint[] {
   return [...(entrypoints ?? [])]
     .map((ep) => ({
       ...ep,
@@ -351,7 +353,7 @@ function normalizeEntrypoints(entrypoints: GraphEntrypoint[]): GraphEntrypoint[]
 function normalizeLocals(locals: GraphLocalDef[]): GraphLocalDef[] {
   return [...(locals ?? [])]
     .map((local) => {
-      if (Object.prototype.hasOwnProperty.call(local, 'default')) {
+      if (Object.hasOwn(local, 'default')) {
         const defaultValue = (local as { default?: unknown }).default;
         if (defaultValue !== null && defaultValue !== undefined) {
           const canonicalized = canonicalizeValueByType(

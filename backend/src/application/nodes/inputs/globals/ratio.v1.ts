@@ -39,4 +39,3 @@ export const INPUTS_GLOBALS_RATIO_V1: NodeImplementation = {
     };
   },
 };
-

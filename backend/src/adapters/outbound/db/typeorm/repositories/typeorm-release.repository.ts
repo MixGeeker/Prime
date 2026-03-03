@@ -144,4 +144,3 @@ export class TypeOrmReleaseRepository implements DefinitionReleaseRepositoryPort
     return this.getRelease(params.definitionId, params.definitionHash);
   }
 }
-

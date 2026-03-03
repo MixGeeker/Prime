@@ -18,4 +18,3 @@ export const FLOW_NOOP_V1: NodeImplementation = {
     return { kind: 'continue', port: 'out' };
   },
 };
-

@@ -7,12 +7,8 @@ import type {
   NodePortDef,
   ValueType,
 } from '../catalog/node-catalog.types';
-import {
-  BLUEPRINT_GRAPH_SCHEMA_V1,
-  ROUNDING_MODES,
-} from './graph-json.schema';
+import { BLUEPRINT_GRAPH_SCHEMA_V1, ROUNDING_MODES } from './graph-json.schema';
 import type {
-  GraphEdge,
   GraphEntrypoint,
   GraphJsonV1,
   GraphNode,
@@ -197,7 +193,10 @@ export class GraphValidatorService {
   private validateDefaults(graph: GraphJsonV1, issues: ValidationIssue[]) {
     for (let i = 0; i < graph.globals.length; i++) {
       const g = graph.globals[i];
-      if (g.default !== undefined && !isValidValueForType(g.valueType, g.default)) {
+      if (
+        g.default !== undefined &&
+        !isValidValueForType(g.valueType, g.default)
+      ) {
         issues.push({
           code: 'GRAPH_INVALID_DEFAULT',
           severity: 'error',
@@ -211,7 +210,10 @@ export class GraphValidatorService {
       const ep = graph.entrypoints[i];
       for (let j = 0; j < ep.params.length; j++) {
         const p = ep.params[j];
-        if (p.default !== undefined && !isValidValueForType(p.valueType, p.default)) {
+        if (
+          p.default !== undefined &&
+          !isValidValueForType(p.valueType, p.default)
+        ) {
           issues.push({
             code: 'GRAPH_INVALID_DEFAULT',
             severity: 'error',
@@ -224,7 +226,10 @@ export class GraphValidatorService {
 
     for (let i = 0; i < graph.locals.length; i++) {
       const l = graph.locals[i];
-      if (l.default !== undefined && !isValidValueForType(l.valueType, l.default)) {
+      if (
+        l.default !== undefined &&
+        !isValidValueForType(l.valueType, l.default)
+      ) {
         issues.push({
           code: 'GRAPH_INVALID_DEFAULT',
           severity: 'error',
@@ -283,7 +288,10 @@ export class GraphValidatorService {
     graph: GraphJsonV1,
     nodeIndex: Map<string, IndexedNode>,
     issues: ValidationIssue[],
-  ): { indegree: Map<string, number>; adjacency: Map<string, string[]> } | null {
+  ): {
+    indegree: Map<string, number>;
+    adjacency: Map<string, string[]>;
+  } | null {
     const incomingByToPort = new Map<string, number>();
     const adjacency = new Map<string, string[]>();
     const indegree = new Map<string, number>();
@@ -435,7 +443,10 @@ export class GraphValidatorService {
       }
 
       const fromKey = `${edge.from.nodeId}::${edge.from.port}`;
-      outgoingByFromPort.set(fromKey, (outgoingByFromPort.get(fromKey) ?? 0) + 1);
+      outgoingByFromPort.set(
+        fromKey,
+        (outgoingByFromPort.get(fromKey) ?? 0) + 1,
+      );
       if ((outgoingByFromPort.get(fromKey) ?? 0) > 1) {
         issues.push({
           code: 'GRAPH_EXEC_EDGE_FROM_PORT_MULTIPLE',
@@ -490,7 +501,8 @@ export class GraphValidatorService {
     const entrypointParamTypesByName = new Map<string, Set<ValueType>>();
     for (const ep of graph.entrypoints) {
       for (const p of ep.params) {
-        const set = entrypointParamTypesByName.get(p.name) ?? new Set<ValueType>();
+        const set =
+          entrypointParamTypesByName.get(p.name) ?? new Set<ValueType>();
         set.add(p.valueType);
         entrypointParamTypesByName.set(p.name, set);
       }

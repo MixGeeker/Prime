@@ -40,7 +40,10 @@ import {
   toDecimalRounding,
 } from '../nodes/shared/decimal-runtime';
 import { RunnerExecutionError } from './runner.error';
-import type { RunnerRuntimeContext } from '../nodes/node-implementation.types';
+import type {
+  NodeExecutionResult,
+  RunnerRuntimeContext,
+} from '../nodes/node-implementation.types';
 
 @Injectable()
 export class GraphRunnerService implements RunnerPort {
@@ -138,10 +141,7 @@ export class GraphRunnerService implements RunnerPort {
 
     const localsByName = new Map<string, unknown>();
     for (const local of graph.locals) {
-      const hasDefault = Object.prototype.hasOwnProperty.call(local, 'default');
-      const defaultValue = hasDefault
-        ? (local as { default?: unknown }).default
-        : null;
+      const defaultValue = local.default;
 
       if (defaultValue === null || defaultValue === undefined) {
         localsByName.set(local.name, null);
@@ -217,7 +217,8 @@ export class GraphRunnerService implements RunnerPort {
     };
 
     const entrypointKey =
-      typeof params.entrypointKey === 'string' && params.entrypointKey.length > 0
+      typeof params.entrypointKey === 'string' &&
+      params.entrypointKey.length > 0
         ? params.entrypointKey
         : 'main';
     const entrypoint = graph.entrypoints.find((ep) => ep.key === entrypointKey);
@@ -305,20 +306,21 @@ export class GraphRunnerService implements RunnerPort {
 
       const execOutputs = nodeDef.execOutputs ?? [];
 
-      const execResult = impl.execute
-        ? impl.execute({
-            node,
-            def: nodeDef,
-            inputs: inputValues,
-            runtime,
-            DecimalCtor,
-            execInPort: currentExec.port,
-          })
-        : execOutputs.length === 1
-          ? { kind: 'continue' as const, port: execOutputs[0]!.name }
-          : execOutputs.length > 1
-            ? { kind: 'return' as const }
-            : null;
+      let execResult: NodeExecutionResult | null = null;
+      if (impl.execute) {
+        execResult = impl.execute({
+          node,
+          def: nodeDef,
+          inputs: inputValues,
+          runtime,
+          DecimalCtor,
+          execInPort: currentExec.port,
+        });
+      } else if (execOutputs.length === 1 && execOutputs[0]) {
+        execResult = { kind: 'continue', port: execOutputs[0].name };
+      } else if (execOutputs.length > 1) {
+        execResult = { kind: 'return' };
+      }
 
       if (!execResult) {
         continue;
@@ -483,7 +485,8 @@ export class GraphRunnerService implements RunnerPort {
     }
 
     const isImpure =
-      (nodeDef.execInputs ?? []).length > 0 || (nodeDef.execOutputs ?? []).length > 0;
+      (nodeDef.execInputs ?? []).length > 0 ||
+      (nodeDef.execOutputs ?? []).length > 0;
     if (isImpure) {
       const outputs = impureOutputsByNodeId.get(node.id);
       if (!outputs) {

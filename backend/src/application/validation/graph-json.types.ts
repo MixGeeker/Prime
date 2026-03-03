@@ -75,4 +75,3 @@ export interface GraphJsonV1 {
   metadata?: unknown;
   resolvers?: unknown;
 }
-

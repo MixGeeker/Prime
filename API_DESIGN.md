@@ -31,6 +31,11 @@
   - `options?`: `{ decimal?: { precision?: number, roundingMode?: string } }`（执行覆盖项；会进入 `inputsHash`）
 
 ### 2.2 Events（输出）
+
+> 重要约定（必须遵守）：
+> - 结果事件采用 **at-least-once** 语义（Outbox + confirm），因此在极端情况下可能会出现重复投递。
+> - 引擎会将 AMQP `messageId` 固定为 **outbox 记录 id**（稳定且全局唯一），下游必须以 `messageId` 做幂等去重。
+> - 若上游提供了 `correlationId`，引擎会在结果事件的 `correlationId` 中透传（便于链路追踪）。
 #### `compute.job.succeeded.v1`
 - payload：
   - `schemaVersion`: `1`

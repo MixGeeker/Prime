@@ -39,4 +39,3 @@ export const INPUTS_PARAMS_RATIO_V1: NodeImplementation = {
     };
   },
 };
-

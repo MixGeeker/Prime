@@ -21,10 +21,15 @@ type JobProcessedStatus = 'succeeded' | 'failed' | 'duplicate' | 'conflict';
 type JobExecutionStatus = 'succeeded' | 'failed';
 type RetentionTable = 'outbox' | 'drafts' | 'jobs';
 type RetentionAction = 'delete' | 'nullify_snapshots';
+type MqRole = 'consumer' | 'dispatcher';
 
 @Injectable()
 export class MetricsService {
   private readonly registry = new Registry();
+
+  private readonly mqConnectionStateGauge: Gauge<'role'>;
+  private readonly mqReconnectTotal: Counter<'role'>;
+  private readonly mqReconnectBackoffMsGauge: Gauge<'role'>;
 
   private readonly outboxPublishTotal: Counter<'result'>;
   private readonly outboxPublishDuration: Histogram;
@@ -49,6 +54,25 @@ export class MetricsService {
         register: this.registry,
       });
     }
+
+    this.mqConnectionStateGauge = new Gauge({
+      name: 'compute_mq_connection_state',
+      help: 'RabbitMQ connection state by role (1=connected, 0=disconnected).',
+      labelNames: ['role'],
+      registers: [this.registry],
+    });
+    this.mqReconnectTotal = new Counter({
+      name: 'compute_mq_reconnect_total',
+      help: 'RabbitMQ reconnect attempts by role.',
+      labelNames: ['role'],
+      registers: [this.registry],
+    });
+    this.mqReconnectBackoffMsGauge = new Gauge({
+      name: 'compute_mq_reconnect_backoff_ms',
+      help: 'Current reconnect backoff in milliseconds by role.',
+      labelNames: ['role'],
+      registers: [this.registry],
+    });
 
     this.outboxPublishTotal = new Counter({
       name: 'compute_outbox_publish_total',
@@ -118,6 +142,18 @@ export class MetricsService {
 
   async getMetricsText(): Promise<string> {
     return this.registry.metrics();
+  }
+
+  setMqConnectionState(role: MqRole, state: 0 | 1) {
+    this.mqConnectionStateGauge.set({ role }, state);
+  }
+
+  incMqReconnect(role: MqRole) {
+    this.mqReconnectTotal.inc({ role }, 1);
+  }
+
+  setMqReconnectBackoffMs(role: MqRole, backoffMs: number) {
+    this.mqReconnectBackoffMsGauge.set({ role }, Math.max(0, backoffMs));
   }
 
   incOutboxPublish(result: OutboxPublishResult) {

@@ -39,4 +39,3 @@ export const INPUTS_GLOBALS_STRING_V1: NodeImplementation = {
     };
   },
 };
-

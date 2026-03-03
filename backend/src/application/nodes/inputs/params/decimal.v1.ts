@@ -39,4 +39,3 @@ export const INPUTS_PARAMS_DECIMAL_V1: NodeImplementation = {
     };
   },
 };
-

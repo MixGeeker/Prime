@@ -1,11 +1,15 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Res } from '@nestjs/common';
 import { ApiExcludeEndpoint, ApiTags } from '@nestjs/swagger';
-import { ConfigService } from '@nestjs/config';
+import { ReadinessService } from './readiness.service';
+
+type PassthroughResponse = {
+  status: (code: number) => unknown;
+};
 
 @Controller()
 @ApiTags('health')
 export class HealthController {
-  constructor(private readonly configService: ConfigService) {}
+  constructor(private readonly readinessService: ReadinessService) {}
 
   /** 基础健康检查：不探测外部依赖，仅用于“进程活着”。 */
   @Get('/health')
@@ -18,22 +22,19 @@ export class HealthController {
   }
 
   /**
-   * 就绪检查：M0 阶段不强制连通 DB/MQ，只返回是否配置。
-   * 后续可以扩展为真正的依赖探测（例如 DB ping / MQ ping）。
+   * 就绪检查：探测 DB + MQ 连通性（用于 K8s/LB readiness）。
+   *
+   * 约定：
+   * - 成功：HTTP 200 + { ok: true, ... }
+   * - 失败：HTTP 503 + { ok: false, dependencies: { ... }, ... }
    */
   @Get('/ready')
   @ApiExcludeEndpoint()
-  getReady() {
-    const hasDbConfig = Boolean(this.configService.get<string>('DATABASE_URL'));
-    const hasMqConfig = Boolean(this.configService.get<string>('RABBITMQ_URL'));
-
-    return {
-      ok: true,
-      dependencies: {
-        db: hasDbConfig ? 'configured' : 'skipped',
-        mq: hasMqConfig ? 'configured' : 'skipped',
-      },
-      timestamp: new Date().toISOString(),
-    };
+  async getReady(@Res({ passthrough: true }) res: PassthroughResponse) {
+    const result = await this.readinessService.check();
+    if (!result.ok) {
+      res.status(503);
+    }
+    return result;
   }
 }

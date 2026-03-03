@@ -40,4 +40,3 @@ export interface DefinitionReleaseRepositoryPort {
     deprecatedAt: Date;
   }): Promise<DefinitionRelease | null>;
 }
-

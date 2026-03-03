@@ -14,4 +14,3 @@ export const LOCALS_GET_NODE_IMPLEMENTATIONS_V1: NodeImplementation[] = [
   LOCALS_GET_DATETIME_V1,
   LOCALS_GET_JSON_V1,
 ];
-

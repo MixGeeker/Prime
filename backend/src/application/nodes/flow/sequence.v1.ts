@@ -47,4 +47,3 @@ export const FLOW_SEQUENCE_V1: NodeImplementation = {
     return { kind: 'continue_many', ports };
   },
 };
-

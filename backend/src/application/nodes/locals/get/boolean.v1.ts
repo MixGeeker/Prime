@@ -33,4 +33,3 @@ export const LOCALS_GET_BOOLEAN_V1: NodeImplementation = {
     };
   },
 };
-

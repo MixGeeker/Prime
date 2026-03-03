@@ -160,4 +160,3 @@ export const BLUEPRINT_GRAPH_SCHEMA_V1 = {
     },
   },
 } as const;
-

@@ -39,4 +39,3 @@ export const INPUTS_GLOBALS_DECIMAL_V1: NodeImplementation = {
     };
   },
 };
-

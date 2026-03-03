@@ -33,6 +33,27 @@ export class EnvVars {
   @IsString()
   SWAGGER_PATH: string = '/docs';
 
+  /** `/ready` 探测结果缓存时长（ms），用于降低 DB/MQ 探测压力 */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(60_000)
+  READY_CHECK_CACHE_MS: number = 1000;
+
+  /** `/ready` DB 探测超时（ms） */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(60_000)
+  READY_CHECK_DB_TIMEOUT_MS: number = 500;
+
+  /** `/ready` MQ 探测超时（ms） */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(60_000)
+  READY_CHECK_MQ_TIMEOUT_MS: number = 800;
+
   /** PostgreSQL 连接串 */
   @IsString()
   DATABASE_URL!: string;
