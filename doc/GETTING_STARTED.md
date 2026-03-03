@@ -26,6 +26,8 @@
 node scripts/start.mjs --mode dev
 ```
 
+> 如果你本机已经有 PostgreSQL/RabbitMQ 占用了默认端口（例如 5432），脚本会自动选择可用端口并提示你把 `.env` 里的连接串改到对应端口。
+
 等价命令：
 
 ```bash
@@ -91,6 +93,8 @@ npm run dev
 node scripts/start.mjs --mode test
 ```
 
+> 如果端口冲突，脚本会自动换端口（并同步到容器端口映射）；输出里会给出实际访问地址。
+
 等价命令：
 
 ```bash
@@ -142,4 +146,3 @@ node scripts/start.mjs --mode test --reset
 docker compose -f compose.dev.yaml down -v
 docker compose -f compose.test.yaml down -v
 ```
-
