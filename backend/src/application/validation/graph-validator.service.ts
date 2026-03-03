@@ -652,41 +652,10 @@ export class GraphValidatorService {
     nodeIndex: Map<string, IndexedNode>,
     issues: ValidationIssue[],
   ) {
+    const outputTypeByKey = new Map<string, ValueType>();
     for (let i = 0; i < outputs.length; i++) {
       const output = outputs[i];
-      const source = nodeIndex.get(output.from.nodeId);
-      if (!source) {
-        issues.push({
-          code: 'GRAPH_OUTPUT_FROM_INVALID',
-          severity: 'error',
-          path: `/outputs/${i}/from/nodeId`,
-          message: `output source node not found: ${output.from.nodeId}`,
-        });
-        continue;
-      }
-      if (!source.nodeDef) {
-        continue;
-      }
-
-      const fromPort = findPort(source.nodeDef.outputs, output.from.port);
-      if (!fromPort) {
-        issues.push({
-          code: 'GRAPH_OUTPUT_FROM_INVALID',
-          severity: 'error',
-          path: `/outputs/${i}/from/port`,
-          message: `output source port not found: ${output.from.nodeId}.${output.from.port}`,
-        });
-        continue;
-      }
-
-      if (!isAssignableValueType(fromPort.valueType, output.valueType)) {
-        issues.push({
-          code: 'GRAPH_OUTPUT_TYPE_MISMATCH',
-          severity: 'error',
-          path: `/outputs/${i}`,
-          message: `output type mismatch: ${fromPort.valueType} -> ${output.valueType}`,
-        });
-      }
+      outputTypeByKey.set(output.key, output.valueType);
 
       if (output.rounding) {
         if (output.valueType !== 'Decimal' && output.valueType !== 'Ratio') {
@@ -716,6 +685,66 @@ export class GraphValidatorService {
             message: `unknown rounding mode: ${String(output.rounding.mode)}`,
           });
         }
+      }
+    }
+
+    const usedKeys = new Set<string>();
+
+    for (const indexed of nodeIndex.values()) {
+      if (!indexed.nodeDef || !indexed.paramsOk) {
+        continue;
+      }
+
+      const nodeType = indexed.node.nodeType;
+      const outputSetType = parseTypedNodeValueType(nodeType, 'outputs.set.');
+      if (!outputSetType) {
+        continue;
+      }
+
+      const key = readKeyParam(indexed.node.params);
+      const pointerBase = `/nodes/${indexed.nodeIndex}/params/key`;
+      if (!key) {
+        issues.push({
+          code: 'GRAPH_OUTPUT_SET_KEY_MISSING',
+          severity: 'error',
+          path: pointerBase,
+          message: `outputs.set node requires params.key: ${indexed.node.id}`,
+        });
+        continue;
+      }
+
+      usedKeys.add(key);
+
+      const declaredType = outputTypeByKey.get(key);
+      if (!declaredType) {
+        issues.push({
+          code: 'GRAPH_OUTPUT_NOT_DECLARED',
+          severity: 'error',
+          path: pointerBase,
+          message: `output is not declared: ${key}`,
+        });
+        continue;
+      }
+
+      if (declaredType !== outputSetType) {
+        issues.push({
+          code: 'GRAPH_OUTPUT_SET_TYPE_MISMATCH',
+          severity: 'error',
+          path: `/nodes/${indexed.nodeIndex}`,
+          message: `output type mismatch for ${key}: ${declaredType} -> ${outputSetType}`,
+        });
+      }
+    }
+
+    for (let i = 0; i < outputs.length; i++) {
+      const output = outputs[i];
+      if (!usedKeys.has(output.key)) {
+        issues.push({
+          code: 'GRAPH_OUTPUT_MISSING_SET_NODE',
+          severity: 'error',
+          path: `/outputs/${i}/key`,
+          message: `output is declared but never set by outputs.set.* nodes: ${output.key}`,
+        });
       }
     }
   }
@@ -754,6 +783,15 @@ function readNameParam(params: unknown): string | null {
   const record = params as Record<string, unknown>;
   const name = record['name'];
   return typeof name === 'string' && name.length > 0 ? name : null;
+}
+
+function readKeyParam(params: unknown): string | null {
+  if (params === null || typeof params !== 'object') {
+    return null;
+  }
+  const record = params as Record<string, unknown>;
+  const key = record['key'];
+  return typeof key === 'string' && key.length > 0 ? key : null;
 }
 
 function parseTypedNodeValueType(

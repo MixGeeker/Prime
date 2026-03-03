@@ -14,6 +14,7 @@ export interface RunnerRuntimeContext {
   params: Record<string, unknown>;
   getLocal(name: string): unknown;
   setLocal(name: string, value: unknown): void;
+  setOutput(params: { key: string; value: unknown; nodeId: string }): void;
   callDefinition(params: {
     definitionId: string;
     definitionHash: string;

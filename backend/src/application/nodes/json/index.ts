@@ -14,4 +14,3 @@ export const JSON_NODE_IMPLEMENTATIONS_V1: NodeImplementation[] = [
   JSON_TO_BOOLEAN_V1,
   JSON_TO_DATETIME_V1,
 ];
-

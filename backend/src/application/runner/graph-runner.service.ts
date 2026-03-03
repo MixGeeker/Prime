@@ -26,6 +26,7 @@ import type {
 import type {
   GraphEdge,
   GraphEndpoint,
+  GraphInputDef,
   GraphJsonV1,
   GraphNode,
   RoundingMode,
@@ -100,6 +101,26 @@ export class GraphRunnerService implements RunnerPort {
     const limits = readRunnerLimits(effectiveRunnerConfig);
     const DecimalCtor = buildDecimalCtor(effectiveRunnerConfig);
 
+    const entrypointKey =
+      typeof params.entrypointKey === 'string' &&
+      params.entrypointKey.length > 0
+        ? params.entrypointKey
+        : 'main';
+    const entrypoint = graph.entrypoints.find((ep) => ep.key === entrypointKey);
+    if (!entrypoint) {
+      throw new RunnerExecutionError(
+        'RUNNER_DETERMINISTIC_ERROR',
+        `entrypoint not found: ${entrypointKey}`,
+      );
+    }
+
+    const runtimeInputs = canonicalizeRuntimeInputsOrThrow({
+      graph,
+      entrypointParams: entrypoint.params ?? [],
+      entrypointKey,
+      inputs: params.inputs,
+    });
+
     if (graph.nodes.length > limits.maxNodes) {
       throw new RunnerExecutionError(
         'RUNNER_DETERMINISTIC_ERROR',
@@ -164,9 +185,15 @@ export class GraphRunnerService implements RunnerPort {
     const pureOutputsCacheByNodeId = new Map<string, Record<string, unknown>>();
     const impureOutputsByNodeId = new Map<string, Record<string, unknown>>();
 
+    const declaredOutputKeys = new Set<string>();
+    for (const o of graph.outputs ?? []) {
+      declaredOutputKeys.add(o.key);
+    }
+    const outputValuesByKey = new Map<string, unknown>();
+
     const runtime: RunnerRuntimeContext = {
-      globals: params.inputs.globals,
-      params: params.inputs.params,
+      globals: runtimeInputs.globals,
+      params: runtimeInputs.params,
       getLocal: (name) => {
         if (!localsByName.has(name)) {
           throw new RunnerExecutionError(
@@ -185,6 +212,15 @@ export class GraphRunnerService implements RunnerPort {
         }
         localsByName.set(name, value);
         pureOutputsCacheByNodeId.clear();
+      },
+      setOutput: ({ key, value, nodeId }) => {
+        if (!declaredOutputKeys.has(key)) {
+          throw new RunnerExecutionError(
+            'RUNNER_DETERMINISTIC_ERROR',
+            `output is not declared: ${key} (at ${nodeId})`,
+          );
+        }
+        outputValuesByKey.set(key, value);
       },
       callDefinition: (call) => {
         if (params.callDepth + 1 > params.maxCallDepth) {
@@ -215,19 +251,6 @@ export class GraphRunnerService implements RunnerPort {
         });
       },
     };
-
-    const entrypointKey =
-      typeof params.entrypointKey === 'string' &&
-      params.entrypointKey.length > 0
-        ? params.entrypointKey
-        : 'main';
-    const entrypoint = graph.entrypoints.find((ep) => ep.key === entrypointKey);
-    if (!entrypoint) {
-      throw new RunnerExecutionError(
-        'RUNNER_DETERMINISTIC_ERROR',
-        `entrypoint not found: ${entrypointKey}`,
-      );
-    }
 
     const execStack: GraphEndpoint[] = [entrypoint.to];
     let steps = 0;
@@ -356,19 +379,14 @@ export class GraphRunnerService implements RunnerPort {
     for (const output of graph.outputs) {
       ensureTimeout(startedAt, limits.timeoutMs);
 
-      const value = this.readValue({
-        nodeId: output.from.nodeId,
-        port: output.from.port,
-        nodeById,
-        incomingValueEdgeByPort,
-        pureOutputsCacheByNodeId,
-        impureOutputsByNodeId,
-        startedAt,
-        timeoutMs: limits.timeoutMs,
-        runtime,
-        DecimalCtor,
-      });
+      if (!outputValuesByKey.has(output.key)) {
+        throw new RunnerExecutionError(
+          'RUNNER_DETERMINISTIC_ERROR',
+          `missing output value (not set by outputs.set.*): ${output.key}`,
+        );
+      }
 
+      const value = outputValuesByKey.get(output.key);
       const outputValue = output.rounding
         ? applyOutputRounding(
             value,
@@ -717,6 +735,81 @@ function deepMerge(
   }
 
   return result;
+}
+
+function canonicalizeRuntimeInputsOrThrow(params: {
+  graph: GraphJsonV1;
+  entrypointKey: string;
+  entrypointParams: GraphInputDef[];
+  inputs: {
+    globals: Record<string, unknown>;
+    params: Record<string, unknown>;
+  };
+}): { globals: Record<string, unknown>; params: Record<string, unknown> } {
+  if (!isPlainObject(params.inputs.globals)) {
+    throw new RunnerExecutionError(
+      'RUNNER_DETERMINISTIC_ERROR',
+      'inputs.globals must be an object',
+    );
+  }
+  if (!isPlainObject(params.inputs.params)) {
+    throw new RunnerExecutionError(
+      'RUNNER_DETERMINISTIC_ERROR',
+      'inputs.params must be an object',
+    );
+  }
+
+  // 允许额外字段：先浅拷贝原始 inputs，再覆盖声明字段的规范化值。
+  const globals: Record<string, unknown> = { ...params.inputs.globals };
+  const entryParams: Record<string, unknown> = { ...params.inputs.params };
+
+  canonicalizeInputDefListOrThrow({
+    defs: params.graph.globals ?? [],
+    target: globals,
+    scope: 'globals',
+  });
+  canonicalizeInputDefListOrThrow({
+    defs: params.entrypointParams ?? [],
+    target: entryParams,
+    scope: `params(${params.entrypointKey})`,
+  });
+
+  return { globals, params: entryParams };
+}
+
+function canonicalizeInputDefListOrThrow(params: {
+  defs: GraphInputDef[];
+  target: Record<string, unknown>;
+  scope: string;
+}) {
+  for (const def of params.defs) {
+    const hasOwn = Object.hasOwn(params.target, def.name);
+    const raw = hasOwn ? params.target[def.name] : undefined;
+
+    let value: unknown = raw;
+    if (value === undefined) {
+      if (def.default !== undefined) {
+        value = def.default;
+        params.target[def.name] = value;
+      } else if (def.required) {
+        throw new RunnerExecutionError(
+          'RUNNER_DETERMINISTIC_ERROR',
+          `missing required input: ${params.scope}.${def.name}`,
+        );
+      } else {
+        continue;
+      }
+    }
+
+    const canonicalized = canonicalizeValueByType(def.valueType, value);
+    if (!canonicalized.ok) {
+      throw new RunnerExecutionError(
+        'RUNNER_DETERMINISTIC_ERROR',
+        `invalid input for ${params.scope}.${def.name} (${def.valueType}): ${canonicalized.message}`,
+      );
+    }
+    params.target[def.name] = canonicalized.value;
+  }
 }
 
 function buildDecimalCtor(config: Record<string, unknown>): typeof Decimal {

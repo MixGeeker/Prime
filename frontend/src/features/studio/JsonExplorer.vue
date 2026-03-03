@@ -179,6 +179,24 @@ function resolveJsonOutput(nodeId: string, visited: Set<string>): Resolved {
   const node = props.graph.nodes.find((n) => n.id === nodeId);
   if (!node) return { ok: false, error: `node 不存在：${nodeId}` };
 
+  if (node.nodeType === 'inputs.params.root') {
+    if (previewInputsParsed.value.ok === false) return { ok: false, error: previewInputsParsed.value.error };
+    const params = previewInputsParsed.value.value['params'];
+    if (params === null || typeof params !== 'object' || Array.isArray(params)) {
+      return { ok: false, error: 'preview inputs.params 必须是 object' };
+    }
+    return { ok: true, value: params, trace: 'inputs.params' };
+  }
+
+  if (node.nodeType === 'inputs.globals.root') {
+    if (previewInputsParsed.value.ok === false) return { ok: false, error: previewInputsParsed.value.error };
+    const globals = previewInputsParsed.value.value['globals'];
+    if (globals === null || typeof globals !== 'object' || Array.isArray(globals)) {
+      return { ok: false, error: 'preview inputs.globals 必须是 object' };
+    }
+    return { ok: true, value: globals, trace: 'inputs.globals' };
+  }
+
   if (node.nodeType === 'inputs.params.json') {
     if (previewInputsParsed.value.ok === false) return { ok: false, error: previewInputsParsed.value.error };
     const name = getStringParam(node, 'name');
@@ -350,4 +368,3 @@ function emitCreateConvert(to: 'decimal' | 'ratio' | 'string' | 'boolean' | 'dat
   flex-wrap: wrap;
 }
 </style>
-

@@ -95,11 +95,10 @@ export const BLUEPRINT_GRAPH_SCHEMA_V1 = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['key', 'valueType', 'from'],
+        required: ['key', 'valueType'],
         properties: {
           key: { type: 'string', minLength: 1 },
           valueType: { enum: VALUE_TYPES },
-          from: { $ref: '#/definitions/endpoint' },
           rounding: {
             type: 'object',
             additionalProperties: false,

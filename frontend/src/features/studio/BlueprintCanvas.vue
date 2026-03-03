@@ -10,7 +10,7 @@ import { ConnectionPlugin, Presets as ConnectionPresets } from 'rete-connection-
 import { VuePlugin, Presets as VuePresets } from 'rete-vue-plugin';
 import { HistoryExtensions, HistoryPlugin, Presets as HistoryPresets } from 'rete-history-plugin';
 
-import type { GraphEdge, GraphJsonV1, NodeCatalog, NodeDef, ValueType } from '@/engine/types';
+import type { GraphEdge, GraphJsonV1, GraphNode, NodeCatalog, NodeDef, ValueType } from '@/engine/types';
 import {
   getUiNodePositionMap,
   removeEdgesForNode,
@@ -65,8 +65,55 @@ function findNodeDef(nodeType: string): NodeDef | undefined {
   return props.catalog.nodes.find((n) => n.nodeType === nodeType);
 }
 
-function buildReteNode(def: NodeDef, graphNode: { id: string; nodeType: string }) {
-  const node = new ClassicPreset.Node(def.title);
+function truncateText(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, Math.max(0, max - 1))}…`;
+}
+
+function getStringParam(params: Record<string, unknown> | undefined, key: string): string | null {
+  const v = params?.[key];
+  return typeof v === 'string' && v.trim() ? v.trim() : null;
+}
+
+function buildNodeLabel(def: NodeDef, graphNode: GraphNode): string {
+  const nodeType = graphNode.nodeType;
+  const params = (graphNode.params ?? {}) as Record<string, unknown>;
+
+  if (nodeType.startsWith('outputs.set.')) {
+    const key = getStringParam(params, 'key');
+    return key ? `${def.title}: ${truncateText(key, 24)}` : def.title;
+  }
+
+  if (nodeType.startsWith('inputs.params.') || nodeType.startsWith('inputs.globals.')) {
+    const name = getStringParam(params, 'name');
+    return name ? `${def.title}: ${truncateText(name, 24)}` : def.title;
+  }
+
+  if (nodeType.startsWith('locals.get.') || nodeType.startsWith('locals.set.')) {
+    const name = getStringParam(params, 'name');
+    return name ? `${def.title}: ${truncateText(name, 24)}` : def.title;
+  }
+
+  if (nodeType === 'json.select') {
+    const mode = getStringParam(params, 'mode') ?? 'browse';
+    if (mode === 'path') {
+      const path = getStringParam(params, 'path');
+      return path ? `${def.title}: ${truncateText(path, 28)}` : def.title;
+    }
+    const key = getStringParam(params, 'key');
+    return key ? `${def.title}: ${truncateText(key, 28)}` : def.title;
+  }
+
+  if (nodeType === 'flow.call_definition') {
+    const id = getStringParam(params, 'definitionId');
+    return id ? `${def.title}: ${truncateText(id, 28)}` : def.title;
+  }
+
+  return def.title;
+}
+
+function buildReteNode(def: NodeDef, graphNode: GraphNode) {
+  const node = new ClassicPreset.Node(buildNodeLabel(def, graphNode));
   node.id = graphNode.id;
 
   // value inputs/outputs
@@ -256,7 +303,6 @@ async function init() {
       props.graph.nodes = props.graph.nodes.filter((n) => n.id !== nodeId);
       props.graph.edges = removeEdgesForNode(props.graph.edges, nodeId);
       props.graph.execEdges = removeEdgesForNode(props.graph.execEdges, nodeId);
-      props.graph.outputs = props.graph.outputs.filter((o) => o.from.nodeId !== nodeId);
 
       const meta = props.graph.metadata as any;
       if (meta?.ui?.nodes && typeof meta.ui.nodes === 'object') {
@@ -308,6 +354,27 @@ async function addConnection(edge: GraphEdge, kind: 'value' | 'exec') {
   await editor.addConnection(conn as any);
 }
 
+async function removeConnection(edge: GraphEdge, kind: 'value' | 'exec') {
+  if (!editor) return;
+
+  const sourceKey = portKey(kind === 'exec' ? 'exec_out' : 'out', edge.from.port);
+  const targetKey = portKey(kind === 'exec' ? 'exec_in' : 'in', edge.to.port);
+
+  const conn = editor
+    .getConnections()
+    .find(
+      (c) =>
+        String(c.source) === edge.from.nodeId &&
+        String(c.sourceOutput) === sourceKey &&
+        String(c.target) === edge.to.nodeId &&
+        String(c.targetInput) === targetKey,
+    ) as any;
+
+  if (!conn) return;
+
+  await (editor as any).removeConnection(conn.id);
+}
+
 type AddNodeOptions = {
   id?: string;
   params?: Record<string, unknown>;
@@ -319,9 +386,10 @@ async function addNode(nodeType: string, options?: AddNodeOptions): Promise<stri
   if (!def || !editor || !area) return null;
 
   const id = options?.id ?? `n_${crypto.randomUUID().slice(0, 8)}`;
-  props.graph.nodes.push({ id, nodeType, params: options?.params ?? {} });
+  const graphNode: GraphNode = { id, nodeType, params: options?.params ?? {} };
+  props.graph.nodes.push(graphNode);
 
-  const node = buildReteNode(def, { id, nodeType });
+  const node = buildReteNode(def, graphNode);
   await editor.addNode(node);
 
   // 放在视野中心附近（简单策略：按当前节点数量做偏移）
@@ -357,10 +425,30 @@ async function connectExecEdge(edge: GraphEdge) {
   await addConnection(edge, 'exec');
 }
 
+async function removeExecEdge(edge: GraphEdge) {
+  await removeConnection(edge, 'exec');
+}
+
+async function refreshNodeTitle(nodeId: string) {
+  if (!editor || !area) return;
+  const graphNode = props.graph.nodes.find((n) => n.id === nodeId) ?? null;
+  if (!graphNode) return;
+  const def = findNodeDef(graphNode.nodeType);
+  if (!def) return;
+
+  const reteNode = editor.getNode(nodeId) as any;
+  if (!reteNode) return;
+
+  reteNode.label = buildNodeLabel(def, graphNode);
+  await area.update('node' as any, String(nodeId));
+}
+
 defineExpose({
   addNode,
   connectValueEdge,
   connectExecEdge,
+  removeExecEdge,
+  refreshNodeTitle,
   focusNode,
   removeNode,
   findNodeDef,

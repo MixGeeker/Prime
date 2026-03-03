@@ -1,27 +1,42 @@
 <template>
   <div>
     <div class="row" style="margin-bottom: 10px">
-      <el-button type="primary" :disabled="outputPortOptions.length === 0" @click="openCreate">
-        新增 output
-      </el-button>
-      <div class="muted">outputs 声明会参与 outputsHash，并可选择 rounding。</div>
+      <el-button type="primary" @click="openCreate">新增 output</el-button>
+      <div class="muted">
+        outputs 声明会参与 outputsHash，并可选择 rounding；实际输出必须由 `outputs.set.*` 节点写入。
+      </div>
     </div>
 
     <el-alert
-      v-if="outputPortOptions.length === 0"
+      v-if="graph.outputs.length === 0"
       type="info"
       show-icon
-      title="当前画布没有可用于 output 的 value 输出端口"
-      description="output 的 from 只能选择「已放到画布上的节点」的 value 输出端口（不会直接显示节点库）。请先在左侧节点库添加一个会产生 value 的节点（例如：core.const / inputs.* / locals.* / math.*），再回来新增 output。"
+      title="还没有 outputs 声明"
+      description="建议先声明 outputs（key/valueType/rounding），然后为每个 output 插入一个 `outputs.set.*` 节点并接入控制流。"
       style="margin-bottom: 10px"
     />
 
     <el-table :data="graph.outputs" size="small" height="320px" stripe>
       <el-table-column prop="key" label="key" width="180" />
       <el-table-column prop="valueType" label="valueType" width="110" />
-      <el-table-column label="from" min-width="220">
+      <el-table-column label="set 节点" min-width="220">
         <template #default="{ row }">
-          <span class="mono muted">{{ row.from?.nodeId }} · {{ row.from?.port }}</span>
+          <template v-if="(setStatsByKey.get(row.key)?.okCount ?? 0) > 0">
+            <el-tag size="small" type="success" effect="plain">
+              已设置 × {{ setStatsByKey.get(row.key)?.okCount }}
+            </el-tag>
+          </template>
+          <template v-else>
+            <el-tag size="small" type="warning" effect="plain">未设置</el-tag>
+          </template>
+
+          <span
+            v-if="(setStatsByKey.get(row.key)?.mismatchCount ?? 0) > 0"
+            class="muted"
+            style="margin-left: 8px"
+          >
+            （类型不匹配 × {{ setStatsByKey.get(row.key)?.mismatchCount }}）
+          </span>
         </template>
       </el-table-column>
       <el-table-column label="rounding" min-width="180">
@@ -32,9 +47,10 @@
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="120" fixed="right">
+      <el-table-column label="操作" width="180" fixed="right">
         <template #default="{ $index }">
           <el-button text @click="openEdit($index)">编辑</el-button>
+          <el-button text type="primary" @click="insertSetNode($index)">插入设置节点</el-button>
           <el-button text type="danger" @click="removeAt($index)">删除</el-button>
         </template>
       </el-table-column>
@@ -46,31 +62,10 @@
           <el-input v-model="form.key" placeholder="例如：selling_price" />
         </el-form-item>
 
-        <el-form-item label="from（选择一个 value 输出端口）">
-          <el-select
-            v-model="form.fromId"
-            filterable
-            style="width: 100%"
-            :disabled="outputPortOptions.length === 0"
-            placeholder="请先在画布添加一个产生 value 的节点"
-            no-data-text="画布上暂无 value 输出端口"
-          >
-            <el-option
-              v-for="o in outputPortOptions"
-              :key="o.id"
-              :label="`${o.nodeId}.${o.port} (${o.valueType})`"
-              :value="o.id"
-            >
-              <div class="opt">
-                <div class="opt-title">{{ o.nodeId }} · {{ o.port }}</div>
-                <div class="opt-sub muted">{{ o.nodeType }} · {{ o.valueType }}</div>
-              </div>
-            </el-option>
+        <el-form-item label="valueType">
+          <el-select v-model="form.valueType" style="width: 100%">
+            <el-option v-for="t in valueTypes" :key="t" :label="t" :value="t" />
           </el-select>
-        </el-form-item>
-
-        <el-form-item label="valueType（由 from 自动决定）">
-          <el-input :model-value="selectedPort?.valueType ?? ''" disabled />
         </el-form-item>
 
         <el-form-item v-if="canRounding" label="rounding（仅 Decimal/Ratio）">
@@ -80,6 +75,13 @@
             <el-select v-model="form.roundingMode" :disabled="!form.roundingEnabled" style="flex: 1">
               <el-option v-for="m in roundingModes" :key="m" :label="m" :value="m" />
             </el-select>
+          </div>
+        </el-form-item>
+
+        <el-form-item label="自动插入 outputs.set 节点（推荐）">
+          <el-switch v-model="form.autoInsertSetNode" active-text="启用" inactive-text="关闭" />
+          <div class="muted" style="margin-top: 6px">
+            会把 `outputs.set.&lt;type&gt;` 插入到 `flow.return` 前（串联到控制流），你只需再把 value 连到它的 value 输入即可。
           </div>
         </el-form-item>
       </el-form>
@@ -95,10 +97,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import type { GraphJsonV1, NodeCatalog, RoundingMode, ValueType } from '@/engine/types';
+import type { GraphJsonV1, GraphNode, RoundingMode, ValueType } from '@/engine/types';
 
-const props = defineProps<{ graph: GraphJsonV1; catalog: NodeCatalog | null }>();
-const emit = defineEmits<{ (e: 'dirty'): void }>();
+const props = defineProps<{ graph: GraphJsonV1 }>();
+const emit = defineEmits<{
+  (e: 'dirty'): void;
+  (e: 'insert-set-node', payload: { key: string; valueType: ValueType }): void;
+}>();
 
 const dialogOpen = ref(false);
 const editingIndex = ref<number | null>(null);
@@ -115,52 +120,81 @@ const roundingModes: RoundingMode[] = [
   'HALF_FLOOR',
 ];
 
-type PortOption = {
-  id: string;
-  nodeId: string;
-  nodeType: string;
-  port: string;
-  valueType: ValueType;
-};
+const valueTypes: ValueType[] = ['Decimal', 'Ratio', 'String', 'Boolean', 'DateTime', 'Json'];
 
-const outputPortOptions = computed<PortOption[]>(() => {
-  const catalog = props.catalog;
-  if (!catalog) return [];
-  const result: PortOption[] = [];
+function getStringParam(node: GraphNode, key: string): string | null {
+  const v = node.params?.[key];
+  return typeof v === 'string' && v.trim() ? v.trim() : null;
+}
 
-  for (const n of props.graph.nodes) {
-    const def = catalog.nodes.find((d) => d.nodeType === n.nodeType);
-    if (!def) continue;
-    for (const out of def.outputs) {
-      result.push({
-        id: `${n.id}::${out.name}`,
-        nodeId: n.id,
-        nodeType: n.nodeType,
-        port: out.name,
-        valueType: out.valueType,
-      });
+function valueTypeToOutputsSetNodeType(vt: ValueType): string {
+  switch (vt) {
+    case 'Decimal':
+      return 'outputs.set.decimal';
+    case 'Ratio':
+      return 'outputs.set.ratio';
+    case 'String':
+      return 'outputs.set.string';
+    case 'Boolean':
+      return 'outputs.set.boolean';
+    case 'DateTime':
+      return 'outputs.set.datetime';
+    case 'Json':
+      return 'outputs.set.json';
+    default: {
+      const _exhaustive: never = vt;
+      return String(_exhaustive);
     }
   }
-  return result;
+}
+
+type SetStats = { okCount: number; mismatchCount: number };
+
+const setStatsByKey = computed<Map<string, SetStats>>(() => {
+  const map = new Map<string, SetStats>();
+
+  for (const out of props.graph.outputs) {
+    const expectedType = valueTypeToOutputsSetNodeType(out.valueType);
+    let okCount = 0;
+    let mismatchCount = 0;
+
+    for (const n of props.graph.nodes) {
+      if (!String(n.nodeType).startsWith('outputs.set.')) continue;
+      const key = getStringParam(n, 'key');
+      if (!key || key !== out.key) continue;
+      if (n.nodeType === expectedType) okCount++;
+      else mismatchCount++;
+    }
+
+    map.set(out.key, { okCount, mismatchCount });
+  }
+
+  return map;
 });
+
+function hasExpectedSetNode(key: string, vt: ValueType): boolean {
+  const expectedType = valueTypeToOutputsSetNodeType(vt);
+  return props.graph.nodes.some((n) => n.nodeType === expectedType && getStringParam(n, 'key') === key);
+}
 
 const form = ref<{
   key: string;
-  fromId: string;
+  valueType: ValueType;
   roundingEnabled: boolean;
   roundingScale: number;
   roundingMode: RoundingMode;
+  autoInsertSetNode: boolean;
 }>({
   key: '',
-  fromId: '',
+  valueType: 'Decimal',
   roundingEnabled: false,
   roundingScale: 2,
   roundingMode: 'HALF_UP',
+  autoInsertSetNode: true,
 });
 
-const selectedPort = computed(() => outputPortOptions.value.find((o) => o.id === form.value.fromId) ?? null);
 const canRounding = computed(() => {
-  const vt = selectedPort.value?.valueType;
+  const vt = form.value.valueType;
   return vt === 'Decimal' || vt === 'Ratio';
 });
 
@@ -168,10 +202,11 @@ function openCreate() {
   editingIndex.value = null;
   form.value = {
     key: '',
-    fromId: outputPortOptions.value[0]?.id ?? '',
+    valueType: 'Decimal',
     roundingEnabled: false,
     roundingScale: 2,
     roundingMode: 'HALF_UP',
+    autoInsertSetNode: true,
   };
   dialogOpen.value = true;
 }
@@ -182,10 +217,11 @@ function openEdit(index: number) {
   editingIndex.value = index;
   form.value = {
     key: item.key,
-    fromId: `${item.from.nodeId}::${item.from.port}`,
+    valueType: item.valueType,
     roundingEnabled: Boolean(item.rounding),
     roundingScale: item.rounding?.scale ?? 2,
     roundingMode: item.rounding?.mode ?? 'HALF_UP',
+    autoInsertSetNode: false,
   };
   dialogOpen.value = true;
 }
@@ -203,23 +239,22 @@ async function removeAt(index: number) {
   }
 }
 
+function insertSetNode(index: number) {
+  const item = props.graph.outputs[index];
+  if (!item) return;
+  emit('insert-set-node', { key: item.key, valueType: item.valueType });
+}
+
 function save() {
   const key = form.value.key.trim();
   if (!key) {
     ElMessage.warning('key 不能为空');
     return;
   }
-  const port = selectedPort.value;
-  if (!port) {
-    ElMessage.warning('请选择 from 端口');
-    return;
-  }
-
-  const valueType = port.valueType;
+  const valueType = form.value.valueType;
   const next = {
     key,
     valueType,
-    from: { nodeId: port.nodeId, port: port.port },
   } as any;
 
   if (canRounding.value && form.value.roundingEnabled) {
@@ -238,6 +273,10 @@ function save() {
   dialogOpen.value = false;
   emit('dirty');
   ElMessage.success('已保存');
+
+  if (form.value.autoInsertSetNode && !hasExpectedSetNode(key, valueType)) {
+    emit('insert-set-node', { key, valueType });
+  }
 }
 </script>
 
@@ -254,11 +293,5 @@ function save() {
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
     monospace;
-}
-.opt-title {
-  font-weight: 600;
-}
-.opt-sub {
-  font-size: 12px;
 }
 </style>

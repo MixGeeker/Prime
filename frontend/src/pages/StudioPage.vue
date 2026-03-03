@@ -201,7 +201,11 @@
                 <LocalsEditor :graph="graph" @dirty="() => (dirty = true)" />
               </el-tab-pane>
               <el-tab-pane label="outputs" name="outputs">
-                <OutputsEditor :graph="graph" :catalog="catalog" @dirty="() => (dirty = true)" />
+                <OutputsEditor
+                  :graph="graph"
+                  @dirty="() => (dirty = true)"
+                  @insert-set-node="insertOutputSetNode"
+                />
               </el-tab-pane>
               <el-tab-pane label="runner" name="runner">
                 <el-form label-position="top" :model="{}">
@@ -313,7 +317,7 @@ import type {
   ValueType,
   ValidationIssue,
 } from '@/engine/types';
-import { createEmptyGraph, getUiNodePositionMap } from '@/features/studio/graph';
+import { createEmptyGraph, getUiNodePositionMap, migrateGraphIfNeeded } from '@/features/studio/graph';
 import BlueprintCanvas from '@/features/studio/BlueprintCanvas.vue';
 import EntrypointsEditor from '@/features/studio/EntrypointsEditor.vue';
 import GlobalsEditor from '@/features/studio/GlobalsEditor.vue';
@@ -431,7 +435,14 @@ const selectedNodeDef = computed(() => {
 
 const showJsonExplorer = computed(() => {
   const t = selectedNode.value?.nodeType;
-  return t === 'inputs.params.json' || t === 'inputs.globals.json' || t === 'core.const.json' || t === 'json.select';
+  return (
+    t === 'inputs.params.root' ||
+    t === 'inputs.globals.root' ||
+    t === 'inputs.params.json' ||
+    t === 'inputs.globals.json' ||
+    t === 'core.const.json' ||
+    t === 'json.select'
+  );
 });
 
 const paletteCategories = computed(() => {
@@ -439,7 +450,11 @@ const paletteCategories = computed(() => {
   const q = paletteQuery.value.trim().toLowerCase();
   const visibleNodes = showInternalNodes.value
     ? nodes
-    : nodes.filter((n) => !String(n.nodeType).startsWith('inputs.'));
+    : nodes.filter((n) => {
+        const t = String(n.nodeType);
+        if (!t.startsWith('inputs.')) return true;
+        return t.endsWith('.root');
+      });
 
   const filtered = q
     ? visibleNodes.filter(
@@ -537,13 +552,17 @@ function applyDraft(draft: DefinitionDraft) {
   };
 
   graph.value = draft.content;
+  const mig = migrateGraphIfNeeded(graph.value);
   runnerConfigText.value = JSON.stringify(draft.runnerConfig ?? {}, null, 2);
   outputSchemaText.value = JSON.stringify(draft.outputSchema ?? {}, null, 2);
 
   issues.value = [];
   definitionHash.value = null;
   dryRunResult.value = null;
-  dirty.value = false;
+  dirty.value = mig.changed;
+  for (const note of mig.notes) {
+    ElMessage.warning(note);
+  }
   canvasKey.value += 1; // 强制重建画布
 }
 
@@ -607,6 +626,7 @@ function updateNodeParams(nodeId: string, params: Record<string, unknown>) {
   if (!node) return;
   node.params = params;
   dirty.value = true;
+  void canvasRef.value?.refreshNodeTitle(nodeId);
 }
 
 function onSelectedNodeParamsUpdate(v: Record<string, unknown> | null) {
@@ -648,23 +668,52 @@ function valueTypeToNodeSuffix(vt: ValueType): string {
   }
 }
 
-async function onPickVariable(payload: { scope: 'globals' | 'params'; input: { name: string; valueType: ValueType } }) {
-  const nodeType = `inputs.${payload.scope}.${valueTypeToNodeSuffix(payload.input.valueType)}`;
-  const positions = getUiNodePositionMap(graph.value);
-  const anchor = positions['n_start'] ?? { x: 0, y: 0 };
+async function insertOutputSetNode(payload: { key: string; valueType: ValueType }) {
+  if (!graph.value) return;
 
-  const existingCount = graph.value.nodes.filter((n) => String(n.nodeType).startsWith(`inputs.${payload.scope}.`)).length;
-  const pos = { x: anchor.x - 340, y: anchor.y + existingCount * 90 };
+  const nodeType = `outputs.set.${valueTypeToNodeSuffix(payload.valueType)}`;
+  const returnNode = graph.value.nodes.find((n) => n.nodeType === 'flow.return') ?? null;
+  if (!returnNode) {
+    ElMessage.warning('当前图缺少 flow.return 节点，无法插入 outputs.set');
+    return;
+  }
+
+  const positions = getUiNodePositionMap(graph.value);
+  const returnPos = positions[returnNode.id] ?? { x: 320, y: 0 };
+  const existingOutCount = graph.value.nodes.filter((n) => String(n.nodeType).startsWith('outputs.set.')).length;
+  const pos = { x: returnPos.x - 260, y: returnPos.y + existingOutCount * 90 };
 
   const newId = await canvasRef.value?.addNode(nodeType, {
-    params: { name: payload.input.name },
+    params: { key: payload.key },
     position: pos,
   });
 
   if (!newId) {
-    ElMessage.warning(`无法创建输入节点：${nodeType}`);
+    ElMessage.warning(`无法创建输出设置节点：${nodeType}`);
     return;
   }
+
+  const incoming = graph.value.execEdges.find((e) => e.to.nodeId === returnNode.id && e.to.port === 'in') ?? null;
+  if (incoming) {
+    await canvasRef.value?.removeExecEdge(incoming);
+    await canvasRef.value?.connectExecEdge({
+      from: incoming.from,
+      to: { nodeId: newId, port: 'in' },
+    });
+  } else {
+    const startNode = graph.value.nodes.find((n) => n.nodeType === 'flow.start') ?? graph.value.nodes.find((n) => n.id === 'n_start') ?? null;
+    if (startNode) {
+      await canvasRef.value?.connectExecEdge({
+        from: { nodeId: startNode.id, port: 'out' },
+        to: { nodeId: newId, port: 'in' },
+      });
+    }
+  }
+
+  await canvasRef.value?.connectExecEdge({
+    from: { nodeId: newId, port: 'out' },
+    to: { nodeId: returnNode.id, port: 'in' },
+  });
 
   selectedNodeId.value = newId;
   rightTab.value = 'node';
@@ -672,12 +721,60 @@ async function onPickVariable(payload: { scope: 'globals' | 'params'; input: { n
   dirty.value = true;
 }
 
+async function onPickVariable(payload: { scope: 'globals' | 'params'; input: { name: string; valueType: ValueType } }) {
+  const positions = getUiNodePositionMap(graph.value);
+  const anchor = positions['n_start'] ?? { x: 0, y: 0 };
+
+  const rootNodeType = `inputs.${payload.scope}.root`;
+  const existingRoot = graph.value.nodes.find((n) => n.nodeType === rootNodeType) ?? null;
+
+  let rootNodeId = existingRoot?.id ?? null;
+  if (!rootNodeId) {
+    const pos = {
+      x: anchor.x - 340,
+      y: payload.scope === 'globals' ? anchor.y - 120 : anchor.y + 120,
+    };
+    rootNodeId = (await canvasRef.value?.addNode(rootNodeType, { position: pos })) ?? null;
+  }
+
+  if (!rootNodeId) {
+    ElMessage.warning(`无法创建入口节点：${rootNodeType}`);
+    return;
+  }
+
+  const selectId = await addJsonChildNode({
+    fromNodeId: rootNodeId,
+    nodeType: 'json.select',
+    nodeParams: { mode: 'browse', key: payload.input.name },
+  });
+
+  if (!selectId) {
+    ElMessage.warning('无法创建 Json 解析节点：json.select');
+    return;
+  }
+
+  if (payload.input.valueType !== 'Json') {
+    const to = valueTypeToNodeSuffix(payload.input.valueType);
+    const convertId = await addJsonChildNode({
+      fromNodeId: selectId,
+      nodeType: `json.to.${to}`,
+    });
+    if (!convertId) {
+      ElMessage.warning(`无法创建类型转换节点：json.to.${to}`);
+      return;
+    }
+  }
+
+  rightTab.value = 'node';
+  dirty.value = true;
+}
+
 async function addJsonChildNode(params: {
   fromNodeId: string;
   nodeType: string;
   nodeParams?: Record<string, unknown>;
-}) {
-  if (!graph.value) return;
+}): Promise<string | null> {
+  if (!graph.value) return null;
 
   const positions = getUiNodePositionMap(graph.value);
   const fromPos = positions[params.fromNodeId] ?? { x: 0, y: 0 };
@@ -693,7 +790,7 @@ async function addJsonChildNode(params: {
   });
   if (!newId) {
     ElMessage.warning(`无法创建节点：${params.nodeType}`);
-    return;
+    return null;
   }
 
   await canvasRef.value?.connectValueEdge({
@@ -703,6 +800,7 @@ async function addJsonChildNode(params: {
 
   selectedNodeId.value = newId;
   await canvasRef.value?.focusNode(newId);
+  return newId;
 }
 
 async function onJsonExplorerCreateSelect(payload: { fromNodeId: string; key: string }) {

@@ -30,6 +30,7 @@ function run() {
       { id: 'n_set1', nodeType: 'locals.set.decimal', params: { name: 'x' } },
       { id: 'n_set2', nodeType: 'locals.set.decimal', params: { name: 'x' } },
       { id: 'n_get', nodeType: 'locals.get.decimal', params: { name: 'x' } },
+      { id: 'n_out', nodeType: 'outputs.set.decimal', params: { key: 'x' } },
       { id: 'n_return', nodeType: 'flow.return' },
     ],
     edges: [
@@ -40,6 +41,10 @@ function run() {
       {
         from: { nodeId: 'n_two', port: 'value' },
         to: { nodeId: 'n_set2', port: 'value' },
+      },
+      {
+        from: { nodeId: 'n_get', port: 'value' },
+        to: { nodeId: 'n_out', port: 'value' },
       },
     ],
     execEdges: [
@@ -57,6 +62,10 @@ function run() {
       },
       {
         from: { nodeId: 'n_set2', port: 'out' },
+        to: { nodeId: 'n_out', port: 'in' },
+      },
+      {
+        from: { nodeId: 'n_out', port: 'out' },
         to: { nodeId: 'n_return', port: 'in' },
       },
     ],
@@ -64,7 +73,6 @@ function run() {
       {
         key: 'x',
         valueType: 'Decimal',
-        from: { nodeId: 'n_get', port: 'value' },
       },
     ],
   };
@@ -94,6 +102,7 @@ function run() {
       { id: 'n_one', nodeType: 'core.const.decimal', params: { value: '1' } },
       { id: 'n_add', nodeType: 'math.add' },
       { id: 'n_set', nodeType: 'locals.set.decimal', params: { name: 'i' } },
+      { id: 'n_out', nodeType: 'outputs.set.decimal', params: { key: 'i' } },
       { id: 'n_return', nodeType: 'flow.return' },
     ],
     edges: [
@@ -121,6 +130,10 @@ function run() {
         from: { nodeId: 'n_add', port: 'value' },
         to: { nodeId: 'n_set', port: 'value' },
       },
+      {
+        from: { nodeId: 'n_get', port: 'value' },
+        to: { nodeId: 'n_out', port: 'value' },
+      },
     ],
     execEdges: [
       {
@@ -137,6 +150,10 @@ function run() {
       },
       {
         from: { nodeId: 'n_while', port: 'completed' },
+        to: { nodeId: 'n_out', port: 'in' },
+      },
+      {
+        from: { nodeId: 'n_out', port: 'out' },
         to: { nodeId: 'n_return', port: 'in' },
       },
     ],
@@ -144,7 +161,6 @@ function run() {
       {
         key: 'i',
         valueType: 'Decimal',
-        from: { nodeId: 'n_get', port: 'value' },
       },
     ],
   };
@@ -162,7 +178,7 @@ function run() {
   const callee: GraphJsonV1 = {
     globals: [],
     entrypoints: [
-      { key: 'main', params: [], to: { nodeId: 'n_return', port: 'in' } },
+      { key: 'main', params: [], to: { nodeId: 'n_out_price', port: 'in' } },
     ],
     locals: [],
     nodes: [
@@ -177,19 +193,45 @@ function run() {
         nodeType: 'core.const.string',
         params: { value: 'USD' },
       },
+      {
+        id: 'n_out_price',
+        nodeType: 'outputs.set.decimal',
+        params: { key: 'price' },
+      },
+      {
+        id: 'n_out_currency',
+        nodeType: 'outputs.set.string',
+        params: { key: 'currency' },
+      },
     ],
-    edges: [],
-    execEdges: [],
+    edges: [
+      {
+        from: { nodeId: 'n_price', port: 'value' },
+        to: { nodeId: 'n_out_price', port: 'value' },
+      },
+      {
+        from: { nodeId: 'n_currency', port: 'value' },
+        to: { nodeId: 'n_out_currency', port: 'value' },
+      },
+    ],
+    execEdges: [
+      {
+        from: { nodeId: 'n_out_price', port: 'out' },
+        to: { nodeId: 'n_out_currency', port: 'in' },
+      },
+      {
+        from: { nodeId: 'n_out_currency', port: 'out' },
+        to: { nodeId: 'n_return', port: 'in' },
+      },
+    ],
     outputs: [
       {
         key: 'price',
         valueType: 'Decimal',
-        from: { nodeId: 'n_price', port: 'value' },
       },
       {
         key: 'currency',
         valueType: 'String',
-        from: { nodeId: 'n_currency', port: 'value' },
       },
     ],
   };
@@ -213,6 +255,21 @@ function run() {
       },
       { id: 'n_globals', nodeType: 'core.const.json', params: { value: {} } },
       { id: 'n_params', nodeType: 'core.const.json', params: { value: {} } },
+      {
+        id: 'n_out_price',
+        nodeType: 'outputs.set.decimal',
+        params: { key: 'price' },
+      },
+      {
+        id: 'n_out_currency',
+        nodeType: 'outputs.set.string',
+        params: { key: 'currency' },
+      },
+      {
+        id: 'n_out_raw',
+        nodeType: 'outputs.set.json',
+        params: { key: 'raw' },
+      },
       { id: 'n_return', nodeType: 'flow.return' },
     ],
     edges: [
@@ -224,6 +281,18 @@ function run() {
         from: { nodeId: 'n_params', port: 'value' },
         to: { nodeId: 'n_call', port: 'params' },
       },
+      {
+        from: { nodeId: 'n_call', port: 'decimal0' },
+        to: { nodeId: 'n_out_price', port: 'value' },
+      },
+      {
+        from: { nodeId: 'n_call', port: 'string0' },
+        to: { nodeId: 'n_out_currency', port: 'value' },
+      },
+      {
+        from: { nodeId: 'n_call', port: 'outputs' },
+        to: { nodeId: 'n_out_raw', port: 'value' },
+      },
     ],
     execEdges: [
       {
@@ -232,6 +301,18 @@ function run() {
       },
       {
         from: { nodeId: 'n_call', port: 'out' },
+        to: { nodeId: 'n_out_price', port: 'in' },
+      },
+      {
+        from: { nodeId: 'n_out_price', port: 'out' },
+        to: { nodeId: 'n_out_currency', port: 'in' },
+      },
+      {
+        from: { nodeId: 'n_out_currency', port: 'out' },
+        to: { nodeId: 'n_out_raw', port: 'in' },
+      },
+      {
+        from: { nodeId: 'n_out_raw', port: 'out' },
         to: { nodeId: 'n_return', port: 'in' },
       },
     ],
@@ -239,17 +320,14 @@ function run() {
       {
         key: 'price',
         valueType: 'Decimal',
-        from: { nodeId: 'n_call', port: 'decimal0' },
       },
       {
         key: 'currency',
         valueType: 'String',
-        from: { nodeId: 'n_call', port: 'string0' },
       },
       {
         key: 'raw',
         valueType: 'Json',
-        from: { nodeId: 'n_call', port: 'outputs' },
       },
     ],
   };
@@ -299,20 +377,30 @@ function run() {
   const graphC: GraphJsonV1 = {
     globals: [],
     entrypoints: [
-      { key: 'main', params: [], to: { nodeId: 'n_return', port: 'in' } },
+      { key: 'main', params: [], to: { nodeId: 'n_out', port: 'in' } },
     ],
     locals: [],
     nodes: [
       { id: 'n_return', nodeType: 'flow.return' },
       { id: 'n_v', nodeType: 'core.const.decimal', params: { value: '1' } },
+      { id: 'n_out', nodeType: 'outputs.set.decimal', params: { key: 'v' } },
     ],
-    edges: [],
-    execEdges: [],
+    edges: [
+      {
+        from: { nodeId: 'n_v', port: 'value' },
+        to: { nodeId: 'n_out', port: 'value' },
+      },
+    ],
+    execEdges: [
+      {
+        from: { nodeId: 'n_out', port: 'out' },
+        to: { nodeId: 'n_return', port: 'in' },
+      },
+    ],
     outputs: [
       {
         key: 'v',
         valueType: 'Decimal',
-        from: { nodeId: 'n_v', port: 'value' },
       },
     ],
   };
@@ -336,6 +424,7 @@ function run() {
       },
       { id: 'n_globals', nodeType: 'core.const.json', params: { value: {} } },
       { id: 'n_params', nodeType: 'core.const.json', params: { value: {} } },
+      { id: 'n_out', nodeType: 'outputs.set.decimal', params: { key: 'v' } },
       { id: 'n_return', nodeType: 'flow.return' },
     ],
     edges: [
@@ -347,6 +436,10 @@ function run() {
         from: { nodeId: 'n_params', port: 'value' },
         to: { nodeId: 'n_call_c', port: 'params' },
       },
+      {
+        from: { nodeId: 'n_call_c', port: 'decimal0' },
+        to: { nodeId: 'n_out', port: 'value' },
+      },
     ],
     execEdges: [
       {
@@ -355,6 +448,10 @@ function run() {
       },
       {
         from: { nodeId: 'n_call_c', port: 'out' },
+        to: { nodeId: 'n_out', port: 'in' },
+      },
+      {
+        from: { nodeId: 'n_out', port: 'out' },
         to: { nodeId: 'n_return', port: 'in' },
       },
     ],
@@ -362,7 +459,6 @@ function run() {
       {
         key: 'v',
         valueType: 'Decimal',
-        from: { nodeId: 'n_call_c', port: 'decimal0' },
       },
     ],
   };
@@ -386,6 +482,7 @@ function run() {
       },
       { id: 'n_globals', nodeType: 'core.const.json', params: { value: {} } },
       { id: 'n_params', nodeType: 'core.const.json', params: { value: {} } },
+      { id: 'n_out', nodeType: 'outputs.set.decimal', params: { key: 'v' } },
       { id: 'n_return', nodeType: 'flow.return' },
     ],
     edges: [
@@ -397,6 +494,10 @@ function run() {
         from: { nodeId: 'n_params', port: 'value' },
         to: { nodeId: 'n_call_b', port: 'params' },
       },
+      {
+        from: { nodeId: 'n_call_b', port: 'decimal0' },
+        to: { nodeId: 'n_out', port: 'value' },
+      },
     ],
     execEdges: [
       {
@@ -405,6 +506,10 @@ function run() {
       },
       {
         from: { nodeId: 'n_call_b', port: 'out' },
+        to: { nodeId: 'n_out', port: 'in' },
+      },
+      {
+        from: { nodeId: 'n_out', port: 'out' },
         to: { nodeId: 'n_return', port: 'in' },
       },
     ],
@@ -412,7 +517,6 @@ function run() {
       {
         key: 'v',
         valueType: 'Decimal',
-        from: { nodeId: 'n_call_b', port: 'decimal0' },
       },
     ],
   };

@@ -16,4 +16,3 @@ export const JSON_TO_RATIO_V1: NodeImplementation = {
     };
   },
 };
-

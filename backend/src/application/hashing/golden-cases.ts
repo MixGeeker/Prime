@@ -38,6 +38,7 @@ function run() {
       { id: 'n_add', nodeType: 'math.add' },
       { id: 'n_a', nodeType: 'inputs.globals.decimal', params: { name: 'a' } },
       { id: 'n_b', nodeType: 'inputs.globals.decimal', params: { name: 'b' } },
+      { id: 'n_out', nodeType: 'outputs.set.decimal', params: { key: 'sum' } },
       { id: 'n_end', nodeType: 'flow.noop' },
       { id: 'n_return', nodeType: 'flow.return' },
       { id: 'n_start', nodeType: 'flow.noop' },
@@ -51,22 +52,29 @@ function run() {
         from: { nodeId: 'n_a', port: 'value' },
         to: { nodeId: 'n_add', port: 'a' },
       },
+      {
+        from: { nodeId: 'n_add', port: 'value' },
+        to: { nodeId: 'n_out', port: 'value' },
+      },
     ],
     execEdges: [
       {
-        from: { nodeId: 'n_end', port: 'out' },
-        to: { nodeId: 'n_return', port: 'in' },
-      },
-      {
         from: { nodeId: 'n_start', port: 'out' },
         to: { nodeId: 'n_end', port: 'in' },
+      },
+      {
+        from: { nodeId: 'n_end', port: 'out' },
+        to: { nodeId: 'n_out', port: 'in' },
+      },
+      {
+        from: { nodeId: 'n_out', port: 'out' },
+        to: { nodeId: 'n_return', port: 'in' },
       },
     ],
     outputs: [
       {
         key: 'sum',
         valueType: 'Decimal',
-        from: { nodeId: 'n_add', port: 'value' },
       },
     ],
     metadata: { editor: { x: 1 } },
@@ -93,6 +101,7 @@ function run() {
       { id: 'n_b', nodeType: 'inputs.globals.decimal', params: { name: 'b' } },
       { id: 'n_a', nodeType: 'inputs.globals.decimal', params: { name: 'a' } },
       { id: 'n_add', nodeType: 'math.add' },
+      { id: 'n_out', nodeType: 'outputs.set.decimal', params: { key: 'sum' } },
     ],
     edges: [
       {
@@ -103,6 +112,10 @@ function run() {
         from: { nodeId: 'n_b', port: 'value' },
         to: { nodeId: 'n_add', port: 'b' },
       },
+      {
+        from: { nodeId: 'n_add', port: 'value' },
+        to: { nodeId: 'n_out', port: 'value' },
+      },
     ],
     execEdges: [
       {
@@ -111,6 +124,10 @@ function run() {
       },
       {
         from: { nodeId: 'n_end', port: 'out' },
+        to: { nodeId: 'n_out', port: 'in' },
+      },
+      {
+        from: { nodeId: 'n_out', port: 'out' },
         to: { nodeId: 'n_return', port: 'in' },
       },
     ],
@@ -118,7 +135,6 @@ function run() {
       {
         key: 'sum',
         valueType: 'Decimal',
-        from: { nodeId: 'n_add', port: 'value' },
       },
     ],
     metadata: { different: true },
@@ -193,7 +209,6 @@ function run() {
     {
       key: 'amount',
       valueType: 'Decimal',
-      from: { nodeId: 'n1', port: 'value' },
     },
   ];
   const outputsSnapshot = hashing.buildOutputsSnapshot(outputsSpec, {
@@ -207,7 +222,7 @@ function run() {
   // 5) Golden 预期值（用于跨语言对账）
   const expected = {
     definitionHash:
-      '0256de31c7596d2b6873c1cd0a9648ff0215996f540ba6d5c8ab633efb1eded8',
+      '97edf44ac3548effa504797606b700083784aa51f93ffa913973c45d8d15b47f',
     inputsHashDefault:
       '7335cce14bfc28138f46ee0d56b2d04950b416f69cbaa572a32a2fb57817f56e',
     inputsHashOverride:

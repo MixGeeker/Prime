@@ -81,7 +81,6 @@ export interface GraphEntrypoint {
 export interface GraphOutput {
   key: string;
   valueType: ValueType;
-  from: GraphEndpoint;
   rounding?: {
     scale: number;
     mode: RoundingMode;

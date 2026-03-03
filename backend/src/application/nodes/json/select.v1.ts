@@ -125,4 +125,3 @@ export const JSON_SELECT_V1: NodeImplementation = {
     return { value: selected };
   },
 };
-

@@ -15,6 +15,7 @@ import { JSON_NODE_IMPLEMENTATIONS_V1 } from '../json';
 import { LOGIC_NODE_IMPLEMENTATIONS_V1 } from '../logic';
 import { LOCALS_NODE_IMPLEMENTATIONS_V1 } from '../locals';
 import { MATH_NODE_IMPLEMENTATIONS_V1 } from '../math';
+import { OUTPUTS_NODE_IMPLEMENTATIONS_V1 } from '../outputs';
 import type { NodeImplementation } from '../node-implementation.types';
 
 export type NodeImplementationKey = string;
@@ -28,6 +29,7 @@ export const NODE_IMPLEMENTATIONS_V1: NodeImplementation[] = [
   ...MATH_NODE_IMPLEMENTATIONS_V1,
   ...LOGIC_NODE_IMPLEMENTATIONS_V1,
   ...COMPARE_DECIMAL_NODE_IMPLEMENTATIONS_V1,
+  ...OUTPUTS_NODE_IMPLEMENTATIONS_V1,
   ...CORE_NODE_IMPLEMENTATIONS_V1,
 ];
 
