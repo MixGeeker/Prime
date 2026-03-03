@@ -3,6 +3,7 @@ import { ApplicationModule } from '../../../../application/application.module';
 import { AdminDefinitionsController } from './definitions.controller';
 import { AdminJobsController } from './jobs.controller';
 import { AdminDlqJobRequestedController } from './dlq.controller';
+import { AdminOpsController } from './ops.controller';
 
 /**
  * Admin API 模块（HTTP inbound）。
@@ -16,6 +17,7 @@ import { AdminDlqJobRequestedController } from './dlq.controller';
     AdminDefinitionsController,
     AdminJobsController,
     AdminDlqJobRequestedController,
+    AdminOpsController,
   ],
 })
 export class AdminModule {}

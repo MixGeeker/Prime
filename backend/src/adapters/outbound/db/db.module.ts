@@ -25,8 +25,13 @@ import { DefinitionReleaseEntity } from './typeorm/entities/definition-release.e
 import { JobEntity } from './typeorm/entities/job.entity';
 import { OutboxEntity } from './typeorm/entities/outbox.entity';
 import { TypeOrmDraftRepository } from './typeorm/repositories/typeorm-draft.repository';
+import {
+  DEFINITION_REPOSITORY,
+  type DefinitionRepositoryPort,
+} from '../../../application/ports/definition-repository.port';
 import { TypeOrmJobRepository } from './typeorm/repositories/typeorm-job.repository';
 import { TypeOrmOutboxRepository } from './typeorm/repositories/typeorm-outbox.repository';
+import { TypeOrmDefinitionRepository } from './typeorm/repositories/typeorm-definition.repository';
 import { TypeOrmReleaseRepository } from './typeorm/repositories/typeorm-release.repository';
 import { TypeOrmUnitOfWork } from './typeorm/typeorm-unit-of-work';
 
@@ -79,6 +84,12 @@ import { TypeOrmUnitOfWork } from './typeorm/typeorm-unit-of-work';
         new TypeOrmReleaseRepository(dataSource.manager),
     },
     {
+      provide: DEFINITION_REPOSITORY,
+      inject: [DataSource],
+      useFactory: (dataSource: DataSource): DefinitionRepositoryPort =>
+        new TypeOrmDefinitionRepository(dataSource.manager),
+    },
+    {
       provide: JOB_REPOSITORY,
       inject: [DataSource],
       useFactory: (dataSource: DataSource): JobRepositoryPort =>
@@ -99,6 +110,7 @@ import { TypeOrmUnitOfWork } from './typeorm/typeorm-unit-of-work';
   exports: [
     DEFINITION_DRAFT_REPOSITORY,
     DEFINITION_RELEASE_REPOSITORY,
+    DEFINITION_REPOSITORY,
     JOB_REPOSITORY,
     OUTBOX_REPOSITORY,
     UNIT_OF_WORK,

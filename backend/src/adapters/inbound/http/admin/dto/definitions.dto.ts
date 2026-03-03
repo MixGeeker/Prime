@@ -1,9 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsIn,
+  IsInt,
   IsObject,
   IsOptional,
   IsString,
+  Max,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -125,4 +128,24 @@ export class DeprecateReleaseDto {
   @IsOptional()
   @IsString()
   reason?: string;
+}
+
+export class ListDefinitionsQueryDto {
+  @ApiPropertyOptional({ description: '按 definitionId 模糊搜索（ILIKE）' })
+  @IsOptional()
+  @IsString()
+  q?: string;
+
+  @ApiPropertyOptional({ description: '分页大小（1..200）', default: 50 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit?: number;
+
+  @ApiPropertyOptional({ description: '游标（base64url）' })
+  @IsOptional()
+  @IsString()
+  cursor?: string;
 }

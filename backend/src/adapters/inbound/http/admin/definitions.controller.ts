@@ -18,6 +18,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { CreateDraftUseCase } from '../../../../application/use-cases/create-draft.use-case';
@@ -26,15 +27,18 @@ import { DeprecateReleaseUseCase } from '../../../../application/use-cases/depre
 import { DryRunUseCase } from '../../../../application/use-cases/dry-run.use-case';
 import { GetDraftUseCase } from '../../../../application/use-cases/get-draft.use-case';
 import { GetReleaseUseCase } from '../../../../application/use-cases/get-release.use-case';
+import { ListDefinitionsUseCase } from '../../../../application/use-cases/list-definitions.use-case';
 import { ListReleasesUseCase } from '../../../../application/use-cases/list-releases.use-case';
 import { PublishDefinitionUseCase } from '../../../../application/use-cases/publish-definition.use-case';
 import { UpdateDraftUseCase } from '../../../../application/use-cases/update-draft.use-case';
 import { UseCaseError } from '../../../../application/use-cases/use-case.error';
 import { ValidateDefinitionUseCase } from '../../../../application/use-cases/validate-definition.use-case';
+import type { DefinitionListCursor } from '../../../../application/ports/definition-repository.port';
 import {
   CreateDefinitionDraftDto,
   DeprecateReleaseDto,
   DryRunDto,
+  ListDefinitionsQueryDto,
   PublishDefinitionDto,
   UpdateDefinitionDraftDto,
   ValidateDefinitionDto,
@@ -54,7 +58,26 @@ export class AdminDefinitionsController {
     private readonly deprecateReleaseUseCase: DeprecateReleaseUseCase,
     private readonly listReleasesUseCase: ListReleasesUseCase,
     private readonly getReleaseUseCase: GetReleaseUseCase,
+    private readonly listDefinitionsUseCase: ListDefinitionsUseCase,
   ) {}
+
+  @Get()
+  async listDefinitions(@Query() query: ListDefinitionsQueryDto) {
+    const cursor = query.cursor ? decodeDefinitionCursor(query.cursor) : null;
+
+    const result = await this.listDefinitionsUseCase.execute({
+      q: query.q ?? null,
+      limit: query.limit ?? 50,
+      cursor,
+    });
+
+    return {
+      items: result.items,
+      nextCursor: result.nextCursor
+        ? encodeDefinitionCursor(result.nextCursor)
+        : null,
+    };
+  }
 
   @Post()
   async createDraft(@Body() body: CreateDefinitionDraftDto) {
@@ -260,4 +283,49 @@ function mapUseCaseError(error: unknown) {
         details: error.details,
       });
   }
+}
+
+function encodeDefinitionCursor(cursor: DefinitionListCursor): string {
+  const payload = {
+    updatedAt: cursor.updatedAt.toISOString(),
+    definitionId: cursor.definitionId,
+  };
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+}
+
+function decodeDefinitionCursor(value: string): DefinitionListCursor {
+  try {
+    const raw = Buffer.from(value, 'base64url').toString('utf8');
+    const parsed: unknown = JSON.parse(raw);
+    if (!isPlainObject(parsed)) {
+      throw new Error('cursor is not an object');
+    }
+    const updatedAt =
+      typeof parsed['updatedAt'] === 'string'
+        ? new Date(parsed['updatedAt'])
+        : null;
+    const definitionId =
+      typeof parsed['definitionId'] === 'string'
+        ? parsed['definitionId']
+        : null;
+
+    if (!updatedAt || Number.isNaN(updatedAt.getTime()) || !definitionId) {
+      throw new Error('cursor fields invalid');
+    }
+
+    return { updatedAt, definitionId };
+  } catch {
+    throw new BadRequestException({
+      code: 'INVALID_CURSOR',
+      message: 'invalid cursor',
+    });
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object') {
+    return false;
+  }
+  const proto = Object.getPrototypeOf(value) as object | null;
+  return proto === Object.prototype || proto === null;
 }

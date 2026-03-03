@@ -129,10 +129,11 @@ DLQ 回放接口默认关闭，启用需同时设置：
 Editor 只需要对接 HTTP Admin API + Node Catalog：
 
 1. `GET /catalog/nodes` 获取节点目录（端口/类型/参数 schema）
-2. `POST /admin/definitions` 创建 draft
-3. `POST /admin/definitions/validate` 校验（结构化 errors，便于编辑器定位）
-4. `POST /admin/definitions/dry-run` 预览计算（不落库、不发 MQ）
-5. `POST /admin/definitions/:definitionId/publish` 发布为 release（拿到 `definitionHash`）
+2. `GET /admin/definitions` definitions 列表（供 UI 管理/搜索）
+3. `POST /admin/definitions` 创建 draft
+4. `POST /admin/definitions/validate` 校验（结构化 errors，便于编辑器定位）
+5. `POST /admin/definitions/dry-run` 预览计算（不落库、不发 MQ）
+6. `POST /admin/definitions/:definitionId/publish` 发布为 release（拿到 `definitionHash`）
 
 ### 2) Provider / 业务服务（投递 job）对接
 
@@ -151,6 +152,12 @@ Editor 只需要对接 HTTP Admin API + Node Catalog：
 - `compute.job.failed.v1`
 
 并以 **AMQP messageId（outbox.id）** 做幂等去重（必须）。
+
+### 4) Ops / 运维面板对接（可选）
+
+- `GET /admin/jobs`：jobs 列表（摘要字段）
+- `GET /admin/ops/stats`：outbox backlog + job 状态统计（仪表盘）
+- （危险）`/admin/dlq/job-requested/*`：DLQ stats/replay（需显式启用）
 
 ---
 
