@@ -1,5 +1,5 @@
 /**
- * validate 输出的结构化错误（与 `compute-engine/GRAPH_SCHEMA.md` / `API_DESIGN.md` 对齐）。
+ * validate 输出的结构化错误（与 `doc/GRAPH_SCHEMA.md` / `doc/API_DESIGN.md` 对齐）。
  */
 
 export type ValidationSeverity = 'error' | 'warning';

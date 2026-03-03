@@ -2,10 +2,10 @@
 
 本服务是 **Compute Engine** 的后端实现：提供 **Definition 管理（draft/publish）**、**BlueprintGraph 校验/预览（dry-run）**、以及 **MQ 执行链路（幂等 + Outbox 可靠发布结果事件）**。
 
-- 里程碑/验收清单：`../BACKEND_EXECUTION.md`
-- 对外契约：`../API_DESIGN.md`
-- 图结构/DSL：`../GRAPH_SCHEMA.md`
-- Hash 规范：`../HASHING_SPEC.md`
+- 里程碑/验收清单：`../doc/BACKEND_EXECUTION.md`
+- 对外契约：`../doc/API_DESIGN.md`
+- 图结构/DSL：`../doc/GRAPH_SCHEMA.md`
+- Hash 规范：`../doc/HASHING_SPEC.md`
 
 ---
 
@@ -109,7 +109,7 @@ $env:WORKER_ROLES="maintenance"; npm run start:worker
 ### 可靠性与去重（必须读）
 
 - 结果事件采用 **at-least-once** 语义：极端情况下可能重复投递。
-- 引擎将 AMQP `messageId` 固定为 **outbox 记录 id**；下游必须以 `messageId` 做幂等去重（详见 `../API_DESIGN.md`）。
+- 引擎将 AMQP `messageId` 固定为 **outbox 记录 id**；下游必须以 `messageId` 做幂等去重（详见 `../doc/API_DESIGN.md`）。
 
 ### 危险运维端点（DLQ 回放）
 
@@ -142,7 +142,7 @@ Editor 只需要对接 HTTP Admin API + Node Catalog：
 - 幂等键：`jobId`（必须全局唯一；重试必须复用同一个 jobId）
 - Definition 引用：必须传 `{ definitionId, definitionHash }`（不使用数字 version）
 - inputs：允许携带多余字段，但引擎只读取声明在图里的 `inputs.globals/inputs.params`
-- options：仅用于执行覆盖（会进入 `inputsHash`），见 `../API_DESIGN.md`
+- options：仅用于执行覆盖（会进入 `inputsHash`），见 `../doc/API_DESIGN.md`
 
 ### 3) 下游结果消费（事件）对接
 

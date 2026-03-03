@@ -31,6 +31,6 @@
 ```
 
 更完整的契约请以仓库文档为准：
-- `../../../../COMPUTE_ENGINE_DESIGN.md`
-- `../../../../API_DESIGN.md`
+- `../../../../doc/COMPUTE_ENGINE_DESIGN.md`
+- `../../../../doc/API_DESIGN.md`
 

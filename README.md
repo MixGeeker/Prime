@@ -7,7 +7,7 @@
 - `./backend/`：Compute Engine 后端（NestJS + TypeORM）
 - `./frontend/`：**示例前端**（Studio 编辑器 + Ops 仪表盘；Vue3 + Element Plus + Rete）
 - `./providers/`：Compute Inputs Provider（规范 + 示例：Provider Simulator + 业务样例）
-- `./*.md`：设计/规范文档（见下方“文档索引”）
+- `./doc/`：设计/规范文档（见下方“文档索引”）
 
 ## 快速开始（后端）
 
@@ -34,15 +34,15 @@ npm run start:dev
 
 ## 文档索引
 
-- 总体设计：`COMPUTE_ENGINE_DESIGN.md`
-- 后端执行链路：`BACKEND_EXECUTION.md`
-- 后端工程指南：`BACKEND_GUIDE.md`
-- API 设计：`API_DESIGN.md`
-- 图/DSL Schema：`GRAPH_SCHEMA.md`
-- 值类型：`VALUE_TYPES.md`
-- Hash 规范：`HASHING_SPEC.md`
-- Provider 指南：`PROVIDER_GUIDE.md`
-- Editor 指南：`EDITOR_GUIDE.md`
+- 总体设计：`doc/COMPUTE_ENGINE_DESIGN.md`
+- 后端执行链路：`doc/BACKEND_EXECUTION.md`
+- 后端工程指南：`doc/BACKEND_GUIDE.md`
+- API 设计：`doc/API_DESIGN.md`
+- 图/DSL Schema：`doc/GRAPH_SCHEMA.md`
+- 值类型：`doc/VALUE_TYPES.md`
+- Hash 规范：`doc/HASHING_SPEC.md`
+- Provider 指南：`doc/PROVIDER_GUIDE.md`
+- Editor 指南：`doc/EDITOR_GUIDE.md`
 
 ## 约定（推荐）
 

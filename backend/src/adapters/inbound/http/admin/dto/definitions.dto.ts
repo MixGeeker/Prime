@@ -12,7 +12,7 @@ import {
 import { Type } from 'class-transformer';
 
 /**
- * Admin API DTO（与 `API_DESIGN.md` 对齐）。
+ * Admin API DTO（与 `doc/API_DESIGN.md` 对齐）。
  *
  * 说明：
  * - 这里只做“输入结构 + class-validator 校验”

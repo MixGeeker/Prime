@@ -5,7 +5,7 @@ import { NodeCatalogService } from '../../../../application/catalog/node-catalog
 /**
  * Node Catalog controller（M2）。
  *
- * 参考 `compute-engine/API_DESIGN.md` 4. Node Catalog。
+ * 参考 `doc/API_DESIGN.md` 4. Node Catalog。
  */
 @Controller('/catalog')
 @ApiTags('catalog')

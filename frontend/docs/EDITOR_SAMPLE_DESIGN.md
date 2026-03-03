@@ -14,7 +14,7 @@
 
 ## 3. 画布与数据结构
 - 画布：Rete.js（`frontend/src/features/studio/BlueprintCanvas.vue`）
-- 数据结构：BlueprintGraph（见 `GRAPH_SCHEMA.md`），在前端类型为 `GraphJsonV1`（`frontend/src/engine/types.ts`）
+- 数据结构：BlueprintGraph（见 `../../doc/GRAPH_SCHEMA.md`），在前端类型为 `GraphJsonV1`（`frontend/src/engine/types.ts`）
 - UI 元数据：写入 `content.metadata.ui.nodes[nodeId] = {x,y}`（引擎忽略且不参与 `definitionHash`）
 
 ## 4. 连线约束（前端预防 + 后端兜底）
@@ -28,4 +28,3 @@
 ## 5. 错误定位
 - validate 返回 `ValidationIssue.path`（JSON Pointer）
 - 示例实现支持从 `/nodes/<index>/...` 解析 nodeId，并定位到画布节点
-

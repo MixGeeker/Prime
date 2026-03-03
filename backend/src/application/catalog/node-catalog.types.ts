@@ -1,9 +1,9 @@
 /**
- * Node Catalog 的数据结构（与 `compute-engine/API_DESIGN.md` 对齐）。
+ * Node Catalog 的数据结构（与 `doc/API_DESIGN.md` 对齐）。
  *
  * 说明：
  * - Catalog 是引擎的“节点白名单”，Editor 也会依赖它来渲染节点与校验连线。
- * - `valueType` 目前只支持 VALUE_TYPES.md 的 MVP 原子类型（纯 Decimal 系）。
+ * - `valueType` 目前只支持 `doc/VALUE_TYPES.md` 的 MVP 原子类型（纯 Decimal 系）。
  */
 
 export type ValueType =
