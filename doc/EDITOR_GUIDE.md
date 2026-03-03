@@ -30,8 +30,10 @@ Editor 必须从 Node Catalog 获取：
 
 > UX 建议：不要把 `inputs.*` 这类“内部读取节点”直接暴露给业务用户。更合理的做法是提供一个 Variables/Inputs 面板：
 > - 先声明 globals/entrypoints(params) 输入契约
-> - 用户从面板点击/拖拽某个变量，Editor 自动在画布生成正确的 `inputs.(globals|params).<type>` 节点并填充 `params.name`
-> 这样既保留强类型校验，又避免节点库里出现“一堆 inputs 节点”的低可用体验。
+> - 用户从面板点击/拖拽某个变量，Editor 自动：
+>   - 创建/复用 `inputs.(globals|params).root`（输出整个 inputs object，Json）
+>   - 生成 `json.select(mode=browse,key=<name>)`，并按需追加 `json.to.<type>`（非 Json 类型）
+> 这样既符合“入口 Json → 逐层解析/直达解析 → 强类型转换”的建图心智模型，又避免画布出现“一堆 inputs getter 节点”的低可用体验。
 
 ### 2.2 Definition Admin API
 Editor 通过 Admin API：
@@ -62,7 +64,7 @@ Provider 可输出一份 JSON（或接口）给 Editor，用于：
 - 列出允许声明为 `globals/params` 的输入字段（以 `name` 表示，而不是路径）
 - 每个字段的类型（`Decimal/Ratio/String/Boolean/DateTime/Json`；规范见 `VALUE_TYPES.md`）、说明、示例值
 
-> 引擎在运行时只读取 job payload 的 `inputs.globals/inputs.params` 中**已声明**的字段；未声明字段允许存在但默认不可读、也不进入 `inputsHash`。
+> 引擎在运行时只会对 `inputs.globals/inputs.params` 中**已声明**的字段做强类型校验/默认值/参与 `inputsHash`；未声明字段允许存在，且可通过 `inputs.*.root + json.select` 显式读取用于计算（但不会进入 `inputsHash`）。
 
 ### 3.2 Json 输入的建图建议（可选）
 

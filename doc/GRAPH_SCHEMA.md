@@ -65,7 +65,10 @@ Compute Engine 触发执行时，job payload 中仍然携带一个 `inputs` obje
   - `inputs.globals.<name>`（对应 `globals[].name`）
   - `inputs.params.<name>`（对应 `entrypoints[key].params[].name`）
 - **允许多余字段**：`inputs` 可以包含任意其它字段（不会触发校验错误）。
-- **默认不可读**：图内没有“读取未声明字段”的机制；未声明字段不会影响执行语义，也不进入 `inputsHash`。
+- **允许显式读取多余字段**：引擎只会对“已声明字段”做强类型校验/默认值填充/参与 `inputsHash`；但图内可以通过
+  `inputs.(globals|params).root -> json.select -> json.to.*` 显式读取多余字段进行计算。
+  - 多余字段 **不会** 进入 `inputsHash`
+  - 多余字段 **不会** 被自动强类型校验（除非显式插入 `json.to.*`）
 
 ---
 
@@ -233,15 +236,16 @@ Compute Engine 触发执行时，job payload 中仍然携带一个 `inputs` obje
 {
   "key": "selling_price",
   "valueType": "Decimal",
-  "from": { "nodeId": "n_price", "port": "value" },
   "rounding": { "scale": 2, "mode": "HALF_UP" }
 }
 ```
 
 约束（必须）：
 - `key` 唯一。
-- `from` 必须引用一个节点的 value 输出端口。
 - `rounding`（若存在）仅允许用于 `Decimal | Ratio`。
+- `outputs` 仅声明输出契约；实际输出必须由节点写入：
+  - 使用 `outputs.set.<type>`（例如 `outputs.set.decimal`）把 value 写入 outputs（`params.key = outputs[].key`）
+  - 每个 `outputs[].key` 必须至少被一个匹配类型的 `outputs.set.*` 节点写入（发布校验会检查）
 
 ---
 
