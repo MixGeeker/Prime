@@ -60,5 +60,12 @@
     "typeorm-ts-node-commonjs": "^0.3.20",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.20.0"
+  },
+  "overrides": {
+    "@angular-devkit/core": {
+      "ajv": "8.18.0"
+    },
+    "multer": "2.1.0",
+    "serialize-javascript": "7.0.4"
   }
 }
