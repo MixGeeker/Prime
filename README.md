@@ -24,6 +24,20 @@ npm run start:dev
 - Ready：`GET /ready`
 - Swagger UI：`GET /docs`
 
+## 快速开始（推荐：Agent 启动）
+
+在仓库根目录运行：
+
+```bash
+node scripts/start.mjs
+```
+
+脚本会询问你选择：
+- **开发模式（dev）**：仅启动依赖（PostgreSQL + RabbitMQ）
+- **测试模式（test）**：全 Docker 启动（依赖 + backend + worker + provider + frontend）
+
+完整步骤见：`doc/GETTING_STARTED.md`
+
 ## 快速开始（端到端示例）
 
 1) 启动后端 HTTP + Worker（见 `backend/README.md`）

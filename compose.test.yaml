@@ -1,0 +1,162 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: compute_engine
+    ports:
+      - '5432:5432'
+    volumes:
+      - prime_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d compute_engine']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+    volumes:
+      - prime_rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend-migrate:
+    image: node:20
+    working_dir: /app/backend
+    volumes:
+      - ./:/app
+      - backend_node_modules:/app/backend/node_modules
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/compute_engine
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - bash
+      - -lc
+      - |
+        if [ ! -d node_modules ] || [ -z "$(ls -A node_modules 2>/dev/null)" ]; then
+          npm ci
+        fi
+        npm run migration:run
+
+  backend-api:
+    image: node:20
+    working_dir: /app/backend
+    volumes:
+      - ./:/app
+      - backend_node_modules:/app/backend/node_modules
+    ports:
+      - '4010:4010'
+    environment:
+      HTTP_PORT: '4010'
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/compute_engine
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+    depends_on:
+      backend-migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    command:
+      - bash
+      - -lc
+      - |
+        if [ ! -d node_modules ] || [ -z "$(ls -A node_modules 2>/dev/null)" ]; then
+          npm ci
+        fi
+        npm run start
+
+  backend-worker:
+    image: node:20
+    working_dir: /app/backend
+    volumes:
+      - ./:/app
+      - backend_node_modules:/app/backend/node_modules
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/compute_engine
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      WORKER_ROLES: consumer,dispatcher
+      WORKER_METRICS_PORT: '4021'
+    depends_on:
+      backend-api:
+        condition: service_started
+    command:
+      - bash
+      - -lc
+      - |
+        if [ ! -d node_modules ] || [ -z "$(ls -A node_modules 2>/dev/null)" ]; then
+          npm ci
+        fi
+        npm run start:worker
+
+  provider-simulator:
+    image: node:20
+    working_dir: /app/providers/examples/provider-simulator
+    volumes:
+      - ./:/app
+      - provider_sim_node_modules:/app/providers/examples/provider-simulator/node_modules
+      - provider_sim_data:/data
+    ports:
+      - '4020:4020'
+    environment:
+      HTTP_PORT: '4020'
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      MQ_COMMANDS_EXCHANGE: compute.commands
+      MQ_EVENTS_EXCHANGE: compute.events
+      MQ_JOB_REQUESTED_ROUTING_KEY: compute.job.requested.v1
+      MQ_RESULTS_QUEUE: provider.simulator.results.v1
+      STORAGE_PATH: /data/provider-simulator.json
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    command:
+      - bash
+      - -lc
+      - |
+        if [ ! -d node_modules ] || [ -z "$(ls -A node_modules 2>/dev/null)" ]; then
+          npm ci
+        fi
+        npm run start
+
+  frontend:
+    image: node:20
+    working_dir: /app/frontend
+    volumes:
+      - ./:/app
+      - frontend_node_modules:/app/frontend/node_modules
+    ports:
+      - '5173:5173'
+    environment:
+      VITE_BACKEND_BASE_URL: http://localhost:4010
+      VITE_PROVIDER_SIMULATOR_BASE_URL: http://localhost:4020
+    depends_on:
+      backend-api:
+        condition: service_started
+      provider-simulator:
+        condition: service_started
+    command:
+      - bash
+      - -lc
+      - |
+        if [ ! -d node_modules ] || [ -z "$(ls -A node_modules 2>/dev/null)" ]; then
+          npm ci
+        fi
+        npm run dev -- --host 0.0.0.0 --port 5173
+
+volumes:
+  prime_postgres_data:
+  prime_rabbitmq_data:
+  backend_node_modules:
+  frontend_node_modules:
+  provider_sim_node_modules:
+  provider_sim_data:
+
