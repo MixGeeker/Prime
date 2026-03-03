@@ -1,0 +1,137 @@
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import type { MqClient } from './mq';
+import type { Storage } from './storage';
+import type { JobRequestedV1, StoredJob } from './types';
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object') return false;
+  const proto = Object.getPrototypeOf(value) as object | null;
+  return proto === Object.prototype || proto === null;
+}
+
+export async function createServer(params: {
+  storage: Storage;
+  mq: MqClient;
+  httpPort: number;
+}) {
+  const app = Fastify({ logger: true });
+  await app.register(cors, { origin: true });
+
+  app.get('/health', async () => {
+    return {
+      ok: true,
+      mqConnected: params.mq.isConnected(),
+      storageUpdatedAt: new Date().toISOString(),
+    };
+  });
+
+  app.get('/facts/global', async () => {
+    return params.storage.getGlobalFacts();
+  });
+
+  app.put('/facts/global', async (req, reply) => {
+    const body = (req as any).body as unknown;
+    if (!isPlainObject(body)) {
+      reply.code(400);
+      return { code: 'INVALID_BODY', message: 'global facts must be an object' };
+    }
+    await params.storage.setGlobalFacts(body);
+    return { ok: true };
+  });
+
+  app.get('/jobs', async (req) => {
+    const limitRaw = (req.query as any)?.limit;
+    const limit = Math.max(1, Math.min(200, Number(limitRaw ?? 50)));
+    return {
+      items: params.storage.listJobs(limit),
+    };
+  });
+
+  app.get('/jobs/:jobId', async (req, reply) => {
+    const jobId = (req.params as any).jobId as string;
+    const job = params.storage.getJob(jobId);
+    if (!job) {
+      reply.code(404);
+      return { code: 'JOB_NOT_FOUND', message: 'job not found' };
+    }
+    return job;
+  });
+
+  app.post('/jobs', async (req, reply) => {
+    const body = (req as any).body as unknown;
+    if (!isPlainObject(body)) {
+      reply.code(400);
+      return { code: 'INVALID_BODY', message: 'body must be an object' };
+    }
+
+    const definitionRef = body['definitionRef'];
+    if (!isPlainObject(definitionRef)) {
+      reply.code(400);
+      return { code: 'INVALID_BODY', message: 'definitionRef is required' };
+    }
+    const definitionId = definitionRef['definitionId'];
+    const definitionHash = definitionRef['definitionHash'];
+    if (typeof definitionId !== 'string' || typeof definitionHash !== 'string') {
+      reply.code(400);
+      return { code: 'INVALID_BODY', message: 'definitionRef.definitionId/hash must be string' };
+    }
+
+    const jobId = typeof body['jobId'] === 'string' ? body['jobId'] : crypto.randomUUID();
+    const correlationId =
+      typeof body['correlationId'] === 'string' ? body['correlationId'] : jobId;
+
+    const entrypointKey =
+      typeof body['entrypointKey'] === 'string' ? body['entrypointKey'] : undefined;
+    const options = isPlainObject(body['options']) ? (body['options'] as Record<string, unknown>) : undefined;
+
+    const mergeGlobalFacts = body['mergeGlobalFacts'] !== false;
+    const inputRaw = isPlainObject(body['inputs']) ? (body['inputs'] as Record<string, unknown>) : {};
+    const globalsRaw = isPlainObject(inputRaw['globals']) ? (inputRaw['globals'] as Record<string, unknown>) : {};
+    const paramsRaw = isPlainObject(inputRaw['params']) ? (inputRaw['params'] as Record<string, unknown>) : {};
+
+    const mergedGlobals = mergeGlobalFacts
+      ? { ...params.storage.getGlobalFacts(), ...globalsRaw }
+      : globalsRaw;
+
+    const inputs: Record<string, unknown> = {
+      ...inputRaw,
+      globals: mergedGlobals,
+      params: paramsRaw,
+      _meta: {
+        provider: 'provider-simulator',
+        requestedAt: new Date().toISOString(),
+        ...(isPlainObject(inputRaw['_meta']) ? (inputRaw['_meta'] as Record<string, unknown>) : {}),
+      },
+    };
+
+    const payload: JobRequestedV1 = {
+      schemaVersion: 1,
+      jobId,
+      definitionRef: { definitionId, definitionHash },
+      entrypointKey,
+      inputs,
+      options,
+    };
+
+    const stored: StoredJob = {
+      jobId,
+      requestedAt: new Date().toISOString(),
+      definitionRef: { definitionId, definitionHash },
+      entrypointKey,
+      status: 'requested',
+      correlationId,
+      messageId: jobId,
+      payload,
+    };
+
+    await params.storage.upsertJob(stored);
+    await params.mq.publishJob(payload, { messageId: jobId, correlationId });
+
+    return { ok: true, jobId };
+  });
+
+  await app.listen({ port: params.httpPort, host: '0.0.0.0' });
+  return app;
+}
+
