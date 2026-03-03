@@ -1,3 +1,8 @@
+/**
+ * GetRelease 用例：读取某个发布物（Release）。
+ *
+ * 用途：diff/回放/审计（Editor 或运维系统）。
+ */
 import { Inject, Injectable } from '@nestjs/common';
 import {
   DEFINITION_RELEASE_REPOSITORY,
@@ -40,4 +45,3 @@ export class GetReleaseUseCase {
     };
   }
 }
-

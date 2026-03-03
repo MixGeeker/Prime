@@ -1,3 +1,12 @@
+/**
+ * Admin Definitions HTTP Controller（入站适配器）。
+ *
+ * 职责：
+ * - 提供 Definition 的 draft 管理、validate/dry-run、publish/release 查询等能力
+ * - 将 UseCaseError 映射为合适的 HTTP 错误响应
+ *
+ * 说明：控制器只做“协议/鉴权/错误映射”，业务编排由 application/use-cases 完成。
+ */
 import {
   BadRequestException,
   Body,

@@ -1,3 +1,11 @@
+/**
+ * PublishDefinition 用例：将当前 draft 发布为不可变 release（definitionHash 标识）。
+ *
+ * 关键约束：
+ * - 发布前必须通过 graph validate（阻断 error）
+ * - 若包含 `flow.call_definition`：需校验依赖存在/已发布/无循环/exposeOutputs 类型对齐
+ * - release append-only：同 definitionHash 已存在则幂等返回
+ */
 import { Inject, Injectable } from '@nestjs/common';
 import {
   DEFINITION_DRAFT_REPOSITORY,

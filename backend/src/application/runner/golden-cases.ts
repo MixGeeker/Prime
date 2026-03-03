@@ -1,3 +1,11 @@
+/**
+ * Runner golden cases。
+ *
+ * 用途：用最小图例验证 runner 的关键语义：
+ * - Sequence 的确定性顺序（continue_many 调度）
+ * - While 回连循环 + limits 防卡死
+ * - call_definition 的 bundle 注入 + maxCallDepth
+ */
 import * as assert from 'node:assert';
 import { NodeCatalogService } from '../catalog/node-catalog.service';
 import { GraphRunnerService } from './graph-runner.service';
@@ -418,4 +426,3 @@ function run() {
 }
 
 run();
-

@@ -1,3 +1,10 @@
+/**
+ * Hashing golden cases（跨语言对账向量）。
+ *
+ * 用途：
+ * - 固化 `definitionHash/inputsHash/outputsHash` 的预期结果
+ * - 作为跨语言实现（例如 Go/Java/Rust）的验收基准
+ */
 import * as assert from 'node:assert';
 import { HashingService } from './hashing.service';
 import { jcsCanonicalize } from './jcs';

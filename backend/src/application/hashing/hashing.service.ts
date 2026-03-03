@@ -1,3 +1,13 @@
+/**
+ * Hashing 服务：
+ * - `definitionHash`：发布物不可变标识（内容寻址）
+ * - `inputsHash`：输入快照哈希（只读取声明过的 globals/params/options）
+ * - `outputsHash`：输出快照哈希（按 outputs 声明排序 + typed canonicalize）
+ *
+ * 关键约束：
+ * - 通过 JCS（JSON Canonicalization Scheme）保证对象键顺序不影响结果
+ * - 通过 typed canonicalize 保证 Decimal/Ratio/DateTime 等稳定表示
+ */
 import { createHash } from 'crypto';
 import { Injectable } from '@nestjs/common';
 import type { ContentType } from '../../domain/definition/definition';

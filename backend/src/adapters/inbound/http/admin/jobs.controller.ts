@@ -1,3 +1,9 @@
+/**
+ * Admin Jobs 查询接口（入站适配器）。
+ *
+ * 职责：
+ * - 按 jobId 查询一次 job 的执行状态/结果（用于对账/排障）
+ */
 import {
   BadRequestException,
   Controller,

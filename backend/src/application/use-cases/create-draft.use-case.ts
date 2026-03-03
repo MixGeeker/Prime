@@ -1,3 +1,8 @@
+/**
+ * CreateDraft 用例：创建一个 Definition draft（可反复编辑）。
+ *
+ * 说明：draft 是可变的；真正可执行的是 publish 后生成的 Release（definitionHash 标识）。
+ */
 import { randomUUID } from 'crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import {

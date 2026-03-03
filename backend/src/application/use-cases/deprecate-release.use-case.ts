@@ -1,3 +1,8 @@
+/**
+ * DeprecateRelease 用例：弃用某个发布物（Release）。
+ *
+ * 说明：弃用后该 definitionHash 不应再被执行（execute/dry-run 会拒绝）。
+ */
 import { Inject, Injectable } from '@nestjs/common';
 import {
   DEFINITION_RELEASE_REPOSITORY,
@@ -52,4 +57,3 @@ export class DeprecateReleaseUseCase {
     };
   }
 }
-

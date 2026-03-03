@@ -1,3 +1,10 @@
+/**
+ * WorkerMetricsHttpServerService：在 worker 进程内启动 metrics HTTP server。
+ *
+ * 说明：
+ * - 监听端口由 WORKER_METRICS_PORT 控制
+ * - 路径由 METRICS_PATH 控制
+ */
 import {
   Injectable,
   Logger,

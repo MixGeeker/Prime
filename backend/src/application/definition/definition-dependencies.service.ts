@@ -1,3 +1,11 @@
+/**
+ * Definition 依赖分析与校验（子蓝图调用）。
+ *
+ * 用途：
+ * - 扫描 `flow.call_definition` 节点，构建被调用方 release 的依赖闭包（transitive）
+ * - 校验依赖存在且已发布、无循环引用、exposeOutputs 与 callee.outputs 的 key/type 对齐
+ * - 产出 Runner 可用的 `definitionBundle`（Runner 运行期不做 DB/IO）
+ */
 import { Inject, Injectable } from '@nestjs/common';
 import type { ValueType } from '../catalog/node-catalog.types';
 import type { DefinitionRelease } from '../../domain/definition/definition';
@@ -312,4 +320,3 @@ function collectCallDefinitionNodes(graph: GraphJsonV1): CallNodeRef[] {
 
   return result;
 }
-

@@ -1,3 +1,11 @@
+/**
+ * 内置节点实现注册表（v1）。
+ *
+ * 说明：
+ * - Node Catalog 的单一事实来源是 NodeImplementation.def
+ * - Runner 执行时会通过 nodeType 在此处找到 evaluate/execute 实现
+ * - key=def.nodeType，必须全局唯一
+ */
 import { CORE_CONST_NODE_IMPLEMENTATIONS_V1 } from '../core/const';
 import { CORE_NODE_IMPLEMENTATIONS_V1 } from '../core';
 import { COMPARE_DECIMAL_NODE_IMPLEMENTATIONS_V1 } from '../compare/decimal';

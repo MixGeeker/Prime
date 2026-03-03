@@ -1,3 +1,10 @@
+/**
+ * FailInvalidJobMessage 用例：处理“消息体不合法/缺关键字段”等无法进入正常执行链路的情况。
+ *
+ * 说明：
+ * - 这类消息通常无法安全产生 job.succeeded/failed（例如缺 jobId）
+ * - 策略通常是：落一条 job.failed（若有 jobId）+ outbox 事件 + 指标；或直接 reject 进入 DLQ
+ */
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'crypto';
 import { MetricsService } from '../../observability/metrics/metrics.service';

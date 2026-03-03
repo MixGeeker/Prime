@@ -1,3 +1,17 @@
+/**
+ * BlueprintGraph Runner（控制流解释器）。
+ *
+ * 核心语义：
+ * - execEdges 驱动执行（允许环）；value edges 按需惰性求值（必须 DAG）
+ * - locals 提供图内可变状态；当 locals.set 发生时会清空纯节点缓存
+ * - impure 节点（含 exec ports）必须先执行后才能读取其 value 输出
+ * - 支持 continue_many（用于 `flow.sequence` 等“一进多出”的确定性顺序调度）
+ *
+ * 子蓝图调用：
+ * - Runner 本身不做 DB/HTTP 等 IO
+ * - `flow.call_definition` 通过 runtime.callDefinition 调用子图
+ * - 被调用方内容必须提前通过 `definitionBundle` 注入
+ */
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { NodeCatalogService } from '../catalog/node-catalog.service';

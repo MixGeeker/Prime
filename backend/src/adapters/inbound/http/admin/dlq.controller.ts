@@ -1,3 +1,12 @@
+/**
+ * Admin DLQ 运维接口（危险端点）。
+ *
+ * 职责：
+ * - 查看 `compute.job.requested.v1` 对应 DLQ 队列的统计信息
+ * - 将 DLQ 消息按限速/限量回放（replay）或仅演练（dry-run）
+ *
+ * 安全：受 `ADMIN_DANGEROUS_ENDPOINTS_ENABLED` + `ADMIN_API_TOKEN` 控制。
+ */
 import {
   BadRequestException,
   Body,

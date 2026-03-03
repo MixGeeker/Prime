@@ -1,3 +1,10 @@
+/**
+ * ValidateDefinition 用例：对 definition（或 ref）做静态校验并返回结构化 issues。
+ *
+ * 说明：
+ * - Editor 可用该接口做实时校验提示
+ * - 当校验通过且可计算时，会返回 definitionHash（便于预览/对账）
+ */
 import { Inject, Injectable } from '@nestjs/common';
 import type { ContentType } from '../../domain/definition/definition';
 import { GraphValidatorService } from '../validation/graph-validator.service';

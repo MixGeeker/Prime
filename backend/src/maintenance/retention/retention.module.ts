@@ -1,3 +1,8 @@
+/**
+ * Retention 模块（maintenance worker）。
+ *
+ * 职责：注册 retention cleaner 定时任务。
+ */
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { DbModule } from '../../adapters/outbound/db/db.module';

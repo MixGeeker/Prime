@@ -1,3 +1,6 @@
+/**
+ * GetDraft 用例：读取某个 Definition 的当前 draft。
+ */
 import { Inject, Injectable } from '@nestjs/common';
 import {
   DEFINITION_DRAFT_REPOSITORY,

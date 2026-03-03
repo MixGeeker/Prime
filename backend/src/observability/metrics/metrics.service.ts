@@ -1,3 +1,10 @@
+/**
+ * MetricsService：Prometheus 指标采集与导出。
+ *
+ * 约定：
+ * - 指标名与标签用于可观测性/告警/容量规划
+ * - 对外暴露为 text/plain（Prometheus exposition format）
+ */
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {

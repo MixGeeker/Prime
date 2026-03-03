@@ -1,3 +1,11 @@
+/**
+ * NodeImplementation 类型体系（节点实现契约）。
+ *
+ * 说明：
+ * - `evaluate()`：纯 value 计算（用于 value edges）；必须确定性
+ * - `execute()`：控制流执行（用于 execEdges）；可返回 continue/return/continue_many
+ * - `runtime`：runner 注入的运行时上下文（globals/params/locals + callDefinition）
+ */
 import type { NodeDef } from '../catalog/node-catalog.types';
 import type { GraphNode } from '../validation/graph-json.types';
 

@@ -1,3 +1,6 @@
+/**
+ * ListReleases 用例：列出某个 definitionId 的所有 releases（含状态/发布时间/changelog）。
+ */
 import { Inject, Injectable } from '@nestjs/common';
 import {
   DEFINITION_RELEASE_REPOSITORY,
@@ -25,4 +28,3 @@ export class ListReleasesUseCase {
     }));
   }
 }
-

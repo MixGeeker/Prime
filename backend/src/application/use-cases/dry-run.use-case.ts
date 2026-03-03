@@ -1,3 +1,11 @@
+/**
+ * DryRun 用例：对给定 definition（或 ref）+ inputs 做一次“预览执行”。
+ *
+ * 约束：
+ * - 不落库、不发 MQ
+ * - 仍会做：graph 校验 / inputs 校验与规范化 / hashing / runner 执行
+ * - 若图包含 `flow.call_definition`，会构建依赖 bundle 并注入 Runner
+ */
 import { Inject, Injectable } from '@nestjs/common';
 import {
   DEFINITION_RELEASE_REPOSITORY,

@@ -1,3 +1,10 @@
+/**
+ * RetentionCleaner：按保留策略清理历史数据（运维任务）。
+ *
+ * 说明：
+ * - 仅当 WORKER_ROLES 含 maintenance 且 RETENTION_CLEANER_ENABLED=true 才会启动
+ * - 清理策略：删除 sent outbox、清空 jobs 快照、删除过期 drafts（不删 jobs 元数据）
+ */
 import {
   Inject,
   Injectable,

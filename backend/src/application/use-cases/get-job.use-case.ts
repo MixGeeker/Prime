@@ -1,3 +1,6 @@
+/**
+ * GetJob 用例：按 jobId 查询执行状态/结果（运维排障）。
+ */
 import { Inject, Injectable } from '@nestjs/common';
 import {
   JOB_REPOSITORY,
