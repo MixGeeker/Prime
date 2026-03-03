@@ -256,6 +256,13 @@ async function init() {
       props.graph.nodes = props.graph.nodes.filter((n) => n.id !== nodeId);
       props.graph.edges = removeEdgesForNode(props.graph.edges, nodeId);
       props.graph.execEdges = removeEdgesForNode(props.graph.execEdges, nodeId);
+      props.graph.outputs = props.graph.outputs.filter((o) => o.from.nodeId !== nodeId);
+
+      const meta = props.graph.metadata as any;
+      if (meta?.ui?.nodes && typeof meta.ui.nodes === 'object') {
+        delete meta.ui.nodes[nodeId];
+      }
+
       emit('dirty');
       emit('select-node', null);
     }
@@ -301,23 +308,31 @@ async function addConnection(edge: GraphEdge, kind: 'value' | 'exec') {
   await editor.addConnection(conn as any);
 }
 
-async function addNode(nodeType: string) {
-  const def = findNodeDef(nodeType);
-  if (!def || !editor || !area) return;
+type AddNodeOptions = {
+  id?: string;
+  params?: Record<string, unknown>;
+  position?: { x: number; y: number };
+};
 
-  const id = `n_${crypto.randomUUID().slice(0, 8)}`;
-  props.graph.nodes.push({ id, nodeType, params: {} });
+async function addNode(nodeType: string, options?: AddNodeOptions): Promise<string | null> {
+  const def = findNodeDef(nodeType);
+  if (!def || !editor || !area) return null;
+
+  const id = options?.id ?? `n_${crypto.randomUUID().slice(0, 8)}`;
+  props.graph.nodes.push({ id, nodeType, params: options?.params ?? {} });
 
   const node = buildReteNode(def, { id, nodeType });
   await editor.addNode(node);
 
   // 放在视野中心附近（简单策略：按当前节点数量做偏移）
   const offset = props.graph.nodes.length * 20;
-  await area.translate(node.id, { x: offset, y: offset });
-  setUiNodePosition(props.graph, id, { x: offset, y: offset });
+  const pos = options?.position ?? { x: offset, y: offset };
+  await area.translate(node.id, pos);
+  setUiNodePosition(props.graph, id, pos);
 
   emit('dirty');
   await AreaExtensions.zoomAt(area, editor.getNodes());
+  return id;
 }
 
 async function focusNode(nodeId: string) {
@@ -334,8 +349,18 @@ async function removeNode(nodeId: string) {
   await editor.removeNode(nodeId);
 }
 
+async function connectValueEdge(edge: GraphEdge) {
+  await addConnection(edge, 'value');
+}
+
+async function connectExecEdge(edge: GraphEdge) {
+  await addConnection(edge, 'exec');
+}
+
 defineExpose({
   addNode,
+  connectValueEdge,
+  connectExecEdge,
   focusNode,
   removeNode,
   findNodeDef,

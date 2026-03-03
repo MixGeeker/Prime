@@ -146,6 +146,16 @@
                 :model-value="(selectedNode.params as any) ?? {}"
                 @update:model-value="onSelectedNodeParamsUpdate"
               />
+
+              <JsonExplorer
+                v-if="showJsonExplorer"
+                :graph="graph"
+                :node="selectedNode"
+                :preview-inputs-text="previewInputsText"
+                @create-select="onJsonExplorerCreateSelect"
+                @create-path="onJsonExplorerCreatePath"
+                @create-convert="onJsonExplorerCreateConvert"
+              />
             </div>
           </el-tab-pane>
 
@@ -275,10 +285,11 @@ import type {
   NodeCatalog,
   ValidationIssue,
 } from '@/engine/types';
-import { createEmptyGraph } from '@/features/studio/graph';
+import { createEmptyGraph, getUiNodePositionMap } from '@/features/studio/graph';
 import BlueprintCanvas from '@/features/studio/BlueprintCanvas.vue';
 import EntrypointsEditor from '@/features/studio/EntrypointsEditor.vue';
 import GlobalsEditor from '@/features/studio/GlobalsEditor.vue';
+import JsonExplorer from '@/features/studio/JsonExplorer.vue';
 import LocalsEditor from '@/features/studio/LocalsEditor.vue';
 import OutputsEditor from '@/features/studio/OutputsEditor.vue';
 import ParamsForm from '@/features/studio/ParamsForm.vue';
@@ -341,6 +352,11 @@ const selectedNodeDef = computed(() => {
   const n = selectedNode.value;
   if (!n || !catalog.value) return null;
   return (catalog.value.nodes as any[]).find((d) => d.nodeType === n.nodeType) ?? null;
+});
+
+const showJsonExplorer = computed(() => {
+  const t = selectedNode.value?.nodeType;
+  return t === 'inputs.params.json' || t === 'inputs.globals.json' || t === 'core.const.json' || t === 'json.select';
 });
 
 const paletteCategories = computed(() => {
@@ -526,6 +542,65 @@ async function addNode(nodeType: string) {
     return;
   }
   await canvasRef.value?.addNode(nodeType);
+}
+
+async function addJsonChildNode(params: {
+  fromNodeId: string;
+  nodeType: string;
+  nodeParams?: Record<string, unknown>;
+}) {
+  if (!graph.value) return;
+
+  const positions = getUiNodePositionMap(graph.value);
+  const fromPos = positions[params.fromNodeId] ?? { x: 0, y: 0 };
+  const siblingCount = graph.value.edges.filter(
+    (e) => e.from.nodeId === params.fromNodeId && e.from.port === 'value',
+  ).length;
+
+  const nextPos = { x: fromPos.x + 280, y: fromPos.y + siblingCount * 90 };
+
+  const newId = await canvasRef.value?.addNode(params.nodeType, {
+    params: params.nodeParams ?? {},
+    position: nextPos,
+  });
+  if (!newId) {
+    ElMessage.warning(`无法创建节点：${params.nodeType}`);
+    return;
+  }
+
+  await canvasRef.value?.connectValueEdge({
+    from: { nodeId: params.fromNodeId, port: 'value' },
+    to: { nodeId: newId, port: 'value' },
+  });
+
+  selectedNodeId.value = newId;
+  await canvasRef.value?.focusNode(newId);
+}
+
+async function onJsonExplorerCreateSelect(payload: { fromNodeId: string; key: string }) {
+  await addJsonChildNode({
+    fromNodeId: payload.fromNodeId,
+    nodeType: 'json.select',
+    nodeParams: { mode: 'browse', key: payload.key },
+  });
+}
+
+async function onJsonExplorerCreatePath(payload: { fromNodeId: string; path: string }) {
+  await addJsonChildNode({
+    fromNodeId: payload.fromNodeId,
+    nodeType: 'json.select',
+    nodeParams: { mode: 'path', path: payload.path },
+  });
+}
+
+async function onJsonExplorerCreateConvert(payload: {
+  fromNodeId: string;
+  to: 'decimal' | 'ratio' | 'string' | 'boolean' | 'datetime';
+}) {
+  await addJsonChildNode({
+    fromNodeId: payload.fromNodeId,
+    nodeType: `json.to.${payload.to}`,
+  });
 }
 
 async function focusSelected() {

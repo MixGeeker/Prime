@@ -59,6 +59,16 @@ Provider 可输出一份 JSON（或接口）给 Editor，用于：
 
 > 引擎在运行时只读取 job payload 的 `inputs.globals/inputs.params` 中**已声明**的字段；未声明字段允许存在但默认不可读、也不进入 `inputsHash`。
 
+### 3.2 Json 输入的建图建议（可选）
+
+当某个输入字段本身是结构化对象（例如 `params.payload: Json`），Editor 建议提供：
+- 顶层 key 浏览（从 Preview inputs 或 Inputs Catalog 的 example 推断），减少手写路径错误
+- 逐层解析：链式生成 `json.select(mode=browse)` 节点
+- 直达解析：生成 `json.select(mode=path)` 节点
+- 强类型转换：在最终叶子值处显式插入 `json.to.*`（Decimal/String/Boolean/DateTime/Ratio）
+
+> 这样可以在保留「允许多余字段传入」的同时，保证“真正参与计算”的叶子值仍然走强类型校验与 canonicalize。
+
 ---
 
 ## 4. Preview（预览）建议

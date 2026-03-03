@@ -209,6 +209,24 @@ Compute Engine 触发执行时，job payload 中仍然携带一个 `inputs` obje
 - 语义：执行子蓝图并返回其 outputs；若配置了 `exposeOutputs`，会把指定 outputs key 映射到对应强类型槽位端口。
 - 校验：`publish/dry-run/executeJob` 会校验依赖 release 存在且已发布、无循环引用，以及 `exposeOutputs` 的 key/type 与子图 `outputs[]` 声明一致。
 
+### 6.3.2 Json 解析节点（约定）
+
+> 当你的业务输入是一个结构化对象（但暂时不想把每个字段都声明成强类型 params/globals）时，可以把它声明为 `Json`，并在图内显式解析与转换。
+
+#### `json.select`
+- 输入：`value:Json`
+- 输出：`value:Json`
+- params：
+  - `mode=browse`：逐层解析（只选择下一层 key/索引）；配合链式多个 `json.select` 实现“逐层下钻”
+  - `mode=path`：直达路径（`a.b.c` 或 `value.a.b.c`）
+- 语义：选择子字段；缺失 key/path 会在运行时抛出确定性错误（便于排障与回放一致）。
+
+#### `json.to.*`（强类型转换）
+- `json.to.decimal` / `json.to.ratio` / `json.to.string` / `json.to.boolean` / `json.to.datetime`
+- 输入：`value:Json`
+- 输出：对应强类型 `value`
+- 语义：按 `VALUE_TYPES.md` 规则做类型校验与 canonicalize；失败会抛出确定性错误。
+
 ### 6.4 `outputs`
 
 ```json

@@ -25,6 +25,13 @@
   - exec 输出端口最多 1 条出边（MVP 简化）
   - 允许成环（loop）
 
+## 4.1 Json 浏览（Inspector 辅助）
+示例实现提供一个最小可用的 Json 浏览器（位于右侧检查器）：
+- 针对 `inputs.*.json / core.const.json / json.select`，基于 Preview inputs 推断当前节点 `value:Json` 输出
+- 展示顶层 keys，并支持点击 key 自动生成并连线一个子节点 `json.select(mode=browse)`
+- 支持输入 path 生成 `json.select(mode=path)`（直达）
+- 支持一键插入 `json.to.*` 把叶子 Json 值转换为强类型（用于 math/compare 等节点）
+
 ## 5. 错误定位
 - validate 返回 `ValidationIssue.path`（JSON Pointer）
 - 示例实现支持从 `/nodes/<index>/...` 解析 nodeId，并定位到画布节点
