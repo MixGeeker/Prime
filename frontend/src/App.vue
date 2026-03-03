@@ -51,9 +51,9 @@ const pageTitle = computed(() => {
 }
 
 .aside {
-  background: #0f1733;
-  border-right: 1px solid rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.9);
+  background: var(--el-bg-color);
+  border-right: 1px solid var(--el-border-color-light);
+  color: var(--el-text-color-primary);
 }
 
 .brand {
@@ -75,16 +75,17 @@ const pageTitle = computed(() => {
 .menu {
   border-right: none;
   background: transparent;
+  --el-menu-bg-color: transparent;
+  --el-menu-hover-bg-color: var(--el-fill-color-light);
 }
 
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(15, 23, 51, 0.6);
-  backdrop-filter: blur(10px);
-  color: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid var(--el-border-color-light);
+  background: var(--el-bg-color);
+  color: var(--el-text-color-primary);
 }
 
 .header-left {
@@ -97,9 +98,6 @@ const pageTitle = computed(() => {
 
 .main {
   padding: 16px;
-  background: radial-gradient(1200px 800px at 10% 0%, rgba(80, 110, 255, 0.22), transparent 60%),
-    radial-gradient(800px 600px at 80% 10%, rgba(255, 140, 0, 0.12), transparent 55%),
-    #0b1020;
+  background: var(--el-bg-color-page);
 }
 </style>
-

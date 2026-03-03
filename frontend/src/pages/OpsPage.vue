@@ -733,10 +733,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.card {
-  background: rgba(15, 23, 51, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
 .hdr {
   display: flex;
   align-items: center;
@@ -751,10 +747,6 @@ onMounted(() => {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: 12px;
-}
-.stat {
-  background: rgba(15, 23, 51, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 .kv {
   display: flex;
@@ -779,7 +771,7 @@ onMounted(() => {
   overflow: auto;
   padding: 12px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--el-border-color-lighter);
+  background: var(--el-fill-color-light);
 }
 </style>

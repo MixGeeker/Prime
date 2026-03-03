@@ -3,6 +3,14 @@
     <template #header>设置</template>
 
     <el-form label-position="top" :model="form" class="form">
+      <el-form-item label="主题（Theme）">
+        <el-radio-group v-model="form.themeMode">
+          <el-radio-button label="system">跟随系统</el-radio-button>
+          <el-radio-button label="light">浅色</el-radio-button>
+          <el-radio-button label="dark">深色</el-radio-button>
+        </el-radio-group>
+      </el-form-item>
+
       <el-form-item label="后端 Base URL">
         <el-input v-model="form.backendBaseUrl" placeholder="http://localhost:4010" />
       </el-form-item>
@@ -30,12 +38,14 @@ import { useSettingsStore } from '@/stores/settings';
 
 const settings = useSettingsStore();
 const form = reactive({
+  themeMode: settings.themeMode,
   backendBaseUrl: settings.backendBaseUrl,
   providerSimulatorBaseUrl: settings.providerSimulatorBaseUrl,
   adminToken: settings.adminToken,
 });
 
 function save() {
+  settings.themeMode = form.themeMode;
   settings.backendBaseUrl = form.backendBaseUrl.trim();
   settings.providerSimulatorBaseUrl = form.providerSimulatorBaseUrl.trim();
   settings.adminToken = form.adminToken.trim();
@@ -45,6 +55,7 @@ function save() {
 
 function reset() {
   settings.resetToDefaults();
+  form.themeMode = settings.themeMode;
   form.backendBaseUrl = settings.backendBaseUrl;
   form.providerSimulatorBaseUrl = settings.providerSimulatorBaseUrl;
   form.adminToken = settings.adminToken;
@@ -61,4 +72,3 @@ function reset() {
   gap: 10px;
 }
 </style>
-

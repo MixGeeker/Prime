@@ -358,7 +358,7 @@ onBeforeUnmount(() => {
   height: 100%;
   border-radius: 12px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: linear-gradient(180deg, rgba(15, 23, 51, 0.4), rgba(15, 23, 51, 0.2));
+  border: 1px solid var(--el-border-color-lighter);
+  background: var(--el-fill-color-lighter);
 }
 </style>

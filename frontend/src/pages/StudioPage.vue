@@ -695,8 +695,6 @@ onMounted(() => {
 }
 .card {
   height: 100%;
-  background: rgba(15, 23, 51, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 .left {
   display: grid;
@@ -784,7 +782,7 @@ onMounted(() => {
   overflow: auto;
   padding: 10px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--el-border-color-lighter);
+  background: var(--el-fill-color-light);
 }
 </style>
