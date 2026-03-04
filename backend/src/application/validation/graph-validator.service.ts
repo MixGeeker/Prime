@@ -288,7 +288,7 @@ export class GraphValidatorService {
       }
     }
 
-    // 输入端口必须被连接（MVP 简化：无可选输入端口）
+    // 输入端口必须被连接（例外：flow.call_definition 的输入 pins 可按 calleeInputPins.required/defaultValue 变为可选）
     for (const indexed of nodeIndex.values()) {
       if (!indexed.nodeDef) {
         continue;
@@ -296,6 +296,16 @@ export class GraphValidatorService {
       for (const input of indexed.nodeDef.inputs) {
         const toKey = `${indexed.node.id}::${input.name}`;
         if (!incomingByToPort.has(toKey)) {
+          if (indexed.node.nodeType === 'flow.call_definition') {
+            const pins = readPinDefs(indexed.node.params?.['calleeInputPins']);
+            const pin = pins.find((p) => p.name === input.name) ?? null;
+            const required = pin ? (pin.required ?? true) : true;
+            const hasDefault =
+              pin ? Object.prototype.hasOwnProperty.call(pin, 'defaultValue') : false;
+            if (!required || hasDefault) {
+              continue;
+            }
+          }
           issues.push({
             code: 'GRAPH_MISSING_INPUT_EDGE',
             severity: 'error',

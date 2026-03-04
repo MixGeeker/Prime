@@ -45,15 +45,6 @@ export interface ValidationIssue {
   message: string;
 }
 
-export interface GraphInputDef {
-  name: string;
-  valueType: ValueType;
-  required?: boolean;
-  description?: string;
-  default?: unknown;
-  constraints?: Record<string, unknown>;
-}
-
 export interface GraphLocalDef {
   name: string;
   valueType: ValueType;
@@ -77,27 +68,6 @@ export interface GraphEdge {
   to: GraphEndpoint;
 }
 
-export interface GraphEntrypoint {
-  key: string;
-  params: GraphInputDef[];
-  /**
-   * 推荐：从哪个 exec 输出端口开始触发（UE 风格 Event 节点）。
-   * Runner 会从该端口的 execEdges 继续执行。
-   */
-  from?: GraphEndpoint; // exec output
-
-  /**
-   * 兼容：旧版 entrypoint 直接指向 exec 输入端口开始执行（已弃用）。
-   */
-  to?: GraphEndpoint; // legacy exec input
-}
-
-export interface GraphOutput {
-  key: string;
-  valueType: ValueType;
-  rounding?: RoundingDef;
-}
-
 /**
  * UE Blueprint 风格：Pin 即契约（用于 flow.start / flow.end 的动态端口定义）。
  * - name: pin 名（也是参数/输出 key）
@@ -114,18 +84,6 @@ export interface PinDef {
   rounding?: RoundingDef;
 }
 
-export interface GraphJsonV1 {
-  globals: GraphInputDef[];
-  entrypoints: GraphEntrypoint[];
-  locals: GraphLocalDef[];
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  execEdges: GraphEdge[];
-  outputs: GraphOutput[];
-  metadata?: unknown;
-  resolvers?: unknown;
-}
-
 export interface GraphJsonV2 {
   schemaVersion: 2;
   locals: GraphLocalDef[];
@@ -136,15 +94,13 @@ export interface GraphJsonV2 {
   resolvers?: unknown;
 }
 
-export type GraphJson = GraphJsonV1 | GraphJsonV2;
-
 export type ContentType = 'graph_json';
 
 export interface DefinitionDraft {
   definitionId: string;
   draftRevisionId: string;
   contentType: ContentType;
-  content: GraphJson;
+  content: GraphJsonV2;
   outputSchema: Record<string, unknown> | null;
   runnerConfig: Record<string, unknown> | null;
   createdAt: string;
@@ -175,8 +131,7 @@ export interface InputsCatalogItem {
   example?: unknown;
 }
 
-export interface InputsCatalogV1 {
-  schemaVersion: 1;
-  globals: InputsCatalogItem[];
-  params: InputsCatalogItem[];
+export interface InputsCatalogV2 {
+  schemaVersion: 2;
+  inputs: InputsCatalogItem[];
 }

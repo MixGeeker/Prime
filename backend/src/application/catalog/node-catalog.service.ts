@@ -89,6 +89,27 @@ export class NodeCatalogService {
       };
     }
 
+    if (node.nodeType === 'flow.call_definition') {
+      const dynamicInputs = readDynamicPorts(node.params?.['calleeInputPins']);
+      const dynamicOutputs = readDynamicPorts(node.params?.['calleeOutputPins']);
+      if (dynamicInputs.length === 0 && dynamicOutputs.length === 0) return base;
+
+      const inputNames = new Set(base.inputs.map((p) => p.name));
+      const outputNames = new Set(base.outputs.map((p) => p.name));
+
+      return {
+        ...base,
+        inputs: [
+          ...base.inputs,
+          ...dynamicInputs.filter((p) => !inputNames.has(p.name)),
+        ],
+        outputs: [
+          ...base.outputs,
+          ...dynamicOutputs.filter((p) => !outputNames.has(p.name)),
+        ],
+      };
+    }
+
     return base;
   }
 

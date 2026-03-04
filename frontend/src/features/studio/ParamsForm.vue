@@ -20,45 +20,17 @@
 
       <div v-else>
         <el-form label-position="top" class="form">
-          <template v-for="field in fields" :key="field.key">
-            <el-form-item :label="field.label" :required="field.required">
-              <el-select
-                v-if="field.enum && field.type === 'string'"
-                :model-value="getValue(field.key) as any"
-                placeholder="请选择"
-                filterable
-                clearable
-                @update:model-value="setValue(field.key, $event)"
-              >
-                <el-option v-for="opt in field.enum" :key="opt" :value="opt" :label="opt" />
-              </el-select>
-
-              <el-switch
-                v-else-if="field.type === 'boolean'"
-                :model-value="Boolean(getValue(field.key))"
-                @update:model-value="setValue(field.key, $event)"
-              />
-
-              <el-input-number
-                v-else-if="field.type === 'number' || field.type === 'integer'"
-                :model-value="(getValue(field.key) as any) ?? null"
-                :step="field.type === 'integer' ? 1 : 0.01"
-                :precision="field.type === 'integer' ? 0 : undefined"
-                controls-position="right"
-                style="width: 100%"
-                @update:model-value="setValue(field.key, $event)"
-              />
-
-              <el-input
-                v-else
-                :model-value="(getValue(field.key) as any) ?? ''"
-                :placeholder="field.placeholder"
-                @update:model-value="setValue(field.key, $event)"
-              />
-
-              <div v-if="field.description" class="desc">{{ field.description }}</div>
-            </el-form-item>
-          </template>
+          <SchemaFieldEditor
+            v-for="field in rootFields"
+            :key="field.key"
+            :schema="field.schema"
+            :label="field.label"
+            :required="field.required"
+            :description="field.description"
+            :root="(modelValue ?? {}) as any"
+            :path="[field.key]"
+            @update:root="(v) => emit('update:modelValue', v)"
+          />
         </el-form>
       </div>
     </div>
@@ -67,6 +39,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import SchemaFieldEditor from './SchemaFieldEditor.vue';
 
 type JsonSchema = Record<string, any>;
 
@@ -85,14 +58,12 @@ const jsonError = ref<string | null>(null);
 type Field = {
   key: string;
   label: string;
-  type: 'string' | 'number' | 'integer' | 'boolean' | 'unknown';
-  enum?: string[];
   required: boolean;
   description?: string;
-  placeholder?: string;
+  schema: JsonSchema;
 };
 
-const fields = computed<Field[]>(() => {
+const rootFields = computed<Field[]>(() => {
   const s = props.schema;
   if (!s || s.type !== 'object') return [];
   const propsObj = s.properties && typeof s.properties === 'object' ? s.properties : {};
@@ -101,36 +72,17 @@ const fields = computed<Field[]>(() => {
   const result: Field[] = [];
   for (const key of Object.keys(propsObj)) {
     const def = propsObj[key] ?? {};
-    const type = (def.type as Field['type']) ?? 'unknown';
     const field: Field = {
       key,
       label: typeof def.title === 'string' ? def.title : key,
-      type,
       required: requiredList.includes(key),
       description: typeof def.description === 'string' ? def.description : undefined,
-      placeholder: typeof def.default !== 'undefined' ? String(def.default) : undefined,
+      schema: def,
     };
-    if (Array.isArray(def.enum) && def.enum.every((v: any) => typeof v === 'string')) {
-      field.enum = def.enum as string[];
-    }
     result.push(field);
   }
   return result;
 });
-
-function getValue(key: string): unknown {
-  return props.modelValue ? props.modelValue[key] : undefined;
-}
-
-function setValue(key: string, value: unknown) {
-  const next = { ...(props.modelValue ?? {}) };
-  if (value === '' || typeof value === 'undefined') {
-    delete next[key];
-  } else {
-    next[key] = value as any;
-  }
-  emit('update:modelValue', next);
-}
 
 const jsonText = computed({
   get() {

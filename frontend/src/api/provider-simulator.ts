@@ -1,6 +1,6 @@
 import axios, { type AxiosRequestConfig } from 'axios';
 import { useSettingsStore } from '@/stores/settings';
-import type { InputsCatalogV1 } from '@/engine/types';
+import type { InputsCatalogV2 } from '@/engine/types';
 
 async function request<T>(config: AxiosRequestConfig): Promise<T> {
   const settings = useSettingsStore();
@@ -17,7 +17,7 @@ export const providerSimulatorApi = {
     return request({ method: 'GET', url: '/health' });
   },
 
-  getInputsCatalog(): Promise<InputsCatalogV1> {
+  getInputsCatalog(): Promise<InputsCatalogV2> {
     return request({ method: 'GET', url: '/catalog/inputs' });
   },
 

@@ -461,6 +461,16 @@ export class GraphRunnerService implements RunnerPort {
         `${node.id}::${inputPort.name}`,
       );
       if (!incomingEdge) {
+        if (node.nodeType === 'flow.call_definition') {
+          const pins = readPinDefs((node.params as any)?.['calleeInputPins']);
+          const pin = pins.find((p) => p.name === inputPort.name) ?? null;
+          const required = pin ? (pin.required ?? true) : true;
+          const hasDefault =
+            pin ? Object.prototype.hasOwnProperty.call(pin, 'defaultValue') : false;
+          if (!required || hasDefault) {
+            continue;
+          }
+        }
         throw new RunnerExecutionError(
           'RUNNER_DETERMINISTIC_ERROR',
           `missing edge for ${node.id}.${inputPort.name}`,

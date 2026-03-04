@@ -7,7 +7,6 @@
  * - 产出 Runner 可用的 `definitionBundle`（Runner 运行期不做 DB/IO）
  */
 import { Inject, Injectable } from '@nestjs/common';
-import type { ValueType } from '../catalog/node-catalog.types';
 import type { DefinitionRelease } from '../../domain/definition/definition';
 import type { GraphJsonV2, PinDef } from '../validation/graph-json.types';
 import type { ValidationIssue } from '../validation/validation-issue';
@@ -19,30 +18,13 @@ import {
 import type { RunnerDefinitionBundleItem } from '../ports/runner.port';
 import { isPlainObject } from '../hashing/canonicalize';
 
-type ExposeKey =
-  | 'decimal'
-  | 'ratio'
-  | 'string'
-  | 'boolean'
-  | 'datetime'
-  | 'json';
-
-const EXPOSE_KEY_TO_VALUE_TYPE: Record<ExposeKey, ValueType> = {
-  decimal: 'Decimal',
-  ratio: 'Ratio',
-  string: 'String',
-  boolean: 'Boolean',
-  datetime: 'DateTime',
-  json: 'Json',
-};
-
 type CallNodeRef = {
   nodeId: string;
   nodeIndex: number;
   definitionId: string;
   definitionHash: string;
-  entrypointKey?: string;
-  exposeOutputs: Partial<Record<ExposeKey, string[]>>;
+  calleeInputPins: PinDef[];
+  calleeOutputPins: PinDef[];
 };
 
 @Injectable()
@@ -116,11 +98,20 @@ export class DefinitionDependenciesService {
       return found;
     };
 
-    const validateExposeOutputs = (
+    const validateCalleePins = (
       callNode: CallNodeRef,
       calleeGraph: GraphJsonV2,
     ): ValidationIssue[] => {
-      const outputTypeByKey = new Map<string, ValueType>();
+      const inputTypeByKey = new Map<string, PinDef['valueType']>();
+      const startNodes = calleeGraph.nodes.filter((n) => n.nodeType === 'flow.start');
+      if (startNodes.length === 1) {
+        const pins = readPinDefs((startNodes[0]!.params as any)?.dynamicOutputs);
+        for (const pin of pins) {
+          inputTypeByKey.set(pin.name, pin.valueType);
+        }
+      }
+
+      const outputTypeByKey = new Map<string, PinDef['valueType']>();
       const endNodes = calleeGraph.nodes.filter((n) => n.nodeType === 'flow.end');
       if (endNodes.length === 1) {
         const pins = readPinDefs((endNodes[0]!.params as any)?.dynamicInputs);
@@ -131,40 +122,77 @@ export class DefinitionDependenciesService {
 
       const issues: ValidationIssue[] = [];
 
-      for (const exposeKey of Object.keys(
-        EXPOSE_KEY_TO_VALUE_TYPE,
-      ) as ExposeKey[]) {
-        const requested = callNode.exposeOutputs[exposeKey];
-        if (!requested || requested.length === 0) {
+      const snapInput = new Map<string, PinDef['valueType']>();
+      for (let i = 0; i < callNode.calleeInputPins.length; i++) {
+        const pin = callNode.calleeInputPins[i]!;
+        snapInput.set(pin.name, pin.valueType);
+
+        const actual = inputTypeByKey.get(pin.name);
+        const base = `/nodes/${callNode.nodeIndex}/params/calleeInputPins/${i}`;
+        if (!actual) {
+          issues.push({
+            code: 'GRAPH_CALL_DEFINITION_INPUT_NOT_FOUND',
+            severity: 'error',
+            path: `${base}/name`,
+            message: `callee input is not declared: ${callNode.definitionId}@${callNode.definitionHash} inputs.${pin.name}`,
+          });
           continue;
         }
+        if (actual !== pin.valueType) {
+          issues.push({
+            code: 'GRAPH_CALL_DEFINITION_INPUT_TYPE_MISMATCH',
+            severity: 'error',
+            path: `${base}/valueType`,
+            message: `callee input type mismatch: ${actual} -> ${pin.valueType} for inputs.${pin.name}`,
+          });
+        }
+      }
 
-        const expectedType = EXPOSE_KEY_TO_VALUE_TYPE[exposeKey];
-        for (let i = 0; i < requested.length; i++) {
-          const outputKey = requested[i];
-          if (!outputKey) {
-            continue;
-          }
+      for (const [name] of inputTypeByKey) {
+        if (!snapInput.has(name)) {
+          issues.push({
+            code: 'GRAPH_CALL_DEFINITION_INPUT_SNAPSHOT_MISSING',
+            severity: 'error',
+            path: `/nodes/${callNode.nodeIndex}/params/calleeInputPins`,
+            message: `callee input pin missing in snapshot: ${callNode.definitionId}@${callNode.definitionHash} inputs.${name}`,
+          });
+        }
+      }
 
-          const actual = outputTypeByKey.get(outputKey);
-          const pointer = `/nodes/${callNode.nodeIndex}/params/exposeOutputs/${exposeKey}/${i}`;
-          if (!actual) {
-            issues.push({
-              code: 'GRAPH_CALL_DEFINITION_OUTPUT_NOT_FOUND',
-              severity: 'error',
-              path: pointer,
-              message: `callee output is not declared: ${callNode.definitionId}@${callNode.definitionHash} outputs.${outputKey}`,
-            });
-            continue;
-          }
-          if (actual !== expectedType) {
-            issues.push({
-              code: 'GRAPH_CALL_DEFINITION_OUTPUT_TYPE_MISMATCH',
-              severity: 'error',
-              path: pointer,
-              message: `callee output type mismatch: ${actual} -> ${expectedType} for outputs.${outputKey}`,
-            });
-          }
+      const snapOutput = new Map<string, PinDef['valueType']>();
+      for (let i = 0; i < callNode.calleeOutputPins.length; i++) {
+        const pin = callNode.calleeOutputPins[i]!;
+        snapOutput.set(pin.name, pin.valueType);
+
+        const actual = outputTypeByKey.get(pin.name);
+        const base = `/nodes/${callNode.nodeIndex}/params/calleeOutputPins/${i}`;
+        if (!actual) {
+          issues.push({
+            code: 'GRAPH_CALL_DEFINITION_OUTPUT_NOT_FOUND',
+            severity: 'error',
+            path: `${base}/name`,
+            message: `callee output is not declared: ${callNode.definitionId}@${callNode.definitionHash} outputs.${pin.name}`,
+          });
+          continue;
+        }
+        if (actual !== pin.valueType) {
+          issues.push({
+            code: 'GRAPH_CALL_DEFINITION_OUTPUT_TYPE_MISMATCH',
+            severity: 'error',
+            path: `${base}/valueType`,
+            message: `callee output type mismatch: ${actual} -> ${pin.valueType} for outputs.${pin.name}`,
+          });
+        }
+      }
+
+      for (const [name] of outputTypeByKey) {
+        if (!snapOutput.has(name)) {
+          issues.push({
+            code: 'GRAPH_CALL_DEFINITION_OUTPUT_SNAPSHOT_MISSING',
+            severity: 'error',
+            path: `/nodes/${callNode.nodeIndex}/params/calleeOutputPins`,
+            message: `callee output pin missing in snapshot: ${callNode.definitionId}@${callNode.definitionHash} outputs.${name}`,
+          });
         }
       }
 
@@ -211,7 +239,7 @@ export class DefinitionDependenciesService {
           },
         );
 
-        const issues = validateExposeOutputs(
+        const issues = validateCalleePins(
           callNode,
           callee.content as unknown as GraphJsonV2,
         );
@@ -261,7 +289,7 @@ export class DefinitionDependenciesService {
         callNode.definitionHash,
         { nodeId: callNode.nodeId, nodeIndex: callNode.nodeIndex },
       );
-      const issues = validateExposeOutputs(
+      const issues = validateCalleePins(
         callNode,
         callee.content as unknown as GraphJsonV2,
       );
@@ -316,7 +344,6 @@ function collectCallDefinitionNodes(graph: GraphJsonV2): CallNodeRef[] {
 
     const definitionId = node.params['definitionId'];
     const definitionHash = node.params['definitionHash'];
-    const entrypointKey = node.params['entrypointKey'];
 
     if (
       typeof definitionId !== 'string' ||
@@ -325,28 +352,16 @@ function collectCallDefinitionNodes(graph: GraphJsonV2): CallNodeRef[] {
       continue;
     }
 
-    const exposeOutputs: Partial<Record<ExposeKey, string[]>> = {};
-    const exposeValue = node.params['exposeOutputs'];
-    if (isPlainObject(exposeValue)) {
-      for (const key of Object.keys(EXPOSE_KEY_TO_VALUE_TYPE) as ExposeKey[]) {
-        const list = exposeValue[key];
-        if (
-          Array.isArray(list) &&
-          list.every((v): v is string => typeof v === 'string')
-        ) {
-          exposeOutputs[key] = list;
-        }
-      }
-    }
+    const calleeInputPins = readPinDefs(node.params['calleeInputPins']);
+    const calleeOutputPins = readPinDefs(node.params['calleeOutputPins']);
 
     result.push({
       nodeId: node.id,
       nodeIndex: i,
       definitionId,
       definitionHash,
-      entrypointKey:
-        typeof entrypointKey === 'string' ? entrypointKey : undefined,
-      exposeOutputs,
+      calleeInputPins,
+      calleeOutputPins,
     });
   }
 

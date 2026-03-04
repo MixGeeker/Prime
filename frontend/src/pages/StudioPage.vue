@@ -302,6 +302,10 @@ const previewOptionsError = ref<string | null>(null);
 const dryRunLoading = ref(false);
 const dryRunResult = ref<any | null>(null);
 
+const callDefSyncing = new Set<string>();
+const callDefSyncedKeyByNodeId = new Map<string, string>();
+const callDefSyncTimers = new Map<string, number>();
+
 
 const hasGraph = computed(() => Boolean(graph.value));
 const canSave = computed(() => Boolean(selectedDefinitionId.value && currentDraftInfo.value?.draftRevisionId));
@@ -503,7 +507,118 @@ function updateNodeParams(nodeId: string, params: Record<string, unknown>) {
   if (!node) return;
   node.params = params;
   dirty.value = true;
-  void canvasRef.value?.refreshNodeTitle(nodeId);
+  if (node.nodeType === 'flow.start' || node.nodeType === 'flow.end' || node.nodeType === 'flow.call_definition') {
+    void canvasRef.value?.rebuildNode(nodeId);
+  } else {
+    void canvasRef.value?.refreshNodeTitle(nodeId);
+  }
+
+  if (node.nodeType === 'flow.call_definition' && !callDefSyncing.has(nodeId)) {
+    scheduleCallDefinitionPinsSync(nodeId);
+  }
+}
+
+function scheduleCallDefinitionPinsSync(nodeId: string) {
+  const prev = callDefSyncTimers.get(nodeId);
+  if (prev) {
+    window.clearTimeout(prev);
+  }
+  const timer = window.setTimeout(() => {
+    void syncCallDefinitionPinsIfNeeded(nodeId);
+  }, 500);
+  callDefSyncTimers.set(nodeId, timer);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object') return false;
+  const proto = Object.getPrototypeOf(value) as object | null;
+  return proto === Object.prototype || proto === null;
+}
+
+function normalizePinDefs(value: unknown): any[] {
+  const VALUE_TYPES = ['Decimal', 'Ratio', 'String', 'Boolean', 'DateTime', 'Json'] as const;
+  if (!Array.isArray(value)) return [];
+  const pins: any[] = [];
+  for (const item of value) {
+    if (!isPlainObject(item)) continue;
+    const name = typeof item.name === 'string' ? item.name.trim() : '';
+    const valueType = typeof item.valueType === 'string' ? item.valueType : '';
+    if (!name) continue;
+    if (!(VALUE_TYPES as readonly string[]).includes(valueType)) continue;
+
+    const pin: any = { name, valueType };
+    if (typeof item.label === 'string') pin.label = item.label;
+    if (typeof item.required === 'boolean') pin.required = item.required;
+    if (Object.prototype.hasOwnProperty.call(item, 'defaultValue')) pin.defaultValue = item.defaultValue;
+    const rounding = item.rounding;
+    if (isPlainObject(rounding)) {
+      const scale = rounding.scale;
+      const mode = rounding.mode;
+      if (typeof scale === 'number' && Number.isInteger(scale) && scale >= 0 && typeof mode === 'string') {
+        pin.rounding = { scale, mode };
+      }
+    }
+    pins.push(pin);
+  }
+  return pins;
+}
+
+function pinSnapshotSignature(pins: unknown): string {
+  return JSON.stringify(normalizePinDefs(pins));
+}
+
+async function syncCallDefinitionPinsIfNeeded(nodeId: string) {
+  const node = graph.value.nodes.find((n) => n.id === nodeId);
+  if (!node || node.nodeType !== 'flow.call_definition') return;
+  if (!isPlainObject(node.params)) return;
+
+  const definitionId = typeof node.params.definitionId === 'string' ? node.params.definitionId.trim() : '';
+  const definitionHash = typeof node.params.definitionHash === 'string' ? node.params.definitionHash.trim() : '';
+  if (!definitionId || !definitionHash) return;
+
+  const key = `${definitionId}@${definitionHash}`;
+  const alreadySyncedKey = callDefSyncedKeyByNodeId.get(nodeId);
+  const hasPins =
+    Array.isArray((node.params as any).calleeInputPins) && Array.isArray((node.params as any).calleeOutputPins);
+  if (alreadySyncedKey === key && hasPins) {
+    return;
+  }
+
+  callDefSyncing.add(nodeId);
+  try {
+    const release: any = await backendApi.getRelease(definitionId, definitionHash);
+    const content: any = release?.content;
+    if (!content || content.schemaVersion !== 2 || !Array.isArray(content.nodes)) {
+      ElMessage.error('子蓝图不是 Graph v2（schemaVersion=2），无法生成动态 pins');
+      return;
+    }
+
+    const startNode = content.nodes.find((n: any) => n?.nodeType === 'flow.start') as any;
+    const endNode = content.nodes.find((n: any) => n?.nodeType === 'flow.end') as any;
+    const calleeInputPins = normalizePinDefs(startNode?.params?.dynamicOutputs);
+    const calleeOutputPins = normalizePinDefs(endNode?.params?.dynamicInputs);
+
+    const nextParams: Record<string, unknown> = {
+      ...node.params,
+      calleeInputPins,
+      calleeOutputPins,
+    };
+
+    const curSig =
+      pinSnapshotSignature((node.params as any).calleeInputPins) +
+      '|' +
+      pinSnapshotSignature((node.params as any).calleeOutputPins);
+    const nextSig = pinSnapshotSignature(calleeInputPins) + '|' + pinSnapshotSignature(calleeOutputPins);
+    if (curSig !== nextSig) {
+      updateNodeParams(nodeId, nextParams);
+    }
+
+    callDefSyncedKeyByNodeId.set(nodeId, key);
+  } catch (e) {
+    ElMessage.error(`获取子蓝图失败：${normalizeHttpError(e)}`);
+  } finally {
+    callDefSyncing.delete(nodeId);
+  }
 }
 
 function onSelectedNodeParamsUpdate(v: Record<string, unknown> | null) {

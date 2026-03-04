@@ -1,30 +1,9 @@
-import type { ValueType } from '../../catalog/node-catalog.types';
+import type { PinDef } from '../../validation/graph-json.types';
 import { canonicalizeChosenValue } from '../shared/canonicalize';
 import type { NodeImplementation } from '../node-implementation.types';
 import { RunnerExecutionError } from '../../runner/runner.error';
 import { getString } from '../shared/value-parsers';
 import { isPlainObject } from '../../hashing/canonicalize';
-
-type ExposeKey =
-  | 'decimal'
-  | 'ratio'
-  | 'string'
-  | 'boolean'
-  | 'datetime'
-  | 'json';
-
-const EXPOSE_SLOTS: Array<{
-  key: ExposeKey;
-  valueType: ValueType;
-  portPrefix: string;
-}> = [
-  { key: 'decimal', valueType: 'Decimal', portPrefix: 'decimal' },
-  { key: 'ratio', valueType: 'Ratio', portPrefix: 'ratio' },
-  { key: 'string', valueType: 'String', portPrefix: 'string' },
-  { key: 'boolean', valueType: 'Boolean', portPrefix: 'boolean' },
-  { key: 'datetime', valueType: 'DateTime', portPrefix: 'datetime' },
-  { key: 'json', valueType: 'Json', portPrefix: 'json' },
-];
 
 export const FLOW_CALL_DEFINITION_V1: NodeImplementation = {
   def: {
@@ -32,67 +11,77 @@ export const FLOW_CALL_DEFINITION_V1: NodeImplementation = {
     title: '调用子蓝图',
     category: 'flow',
     description:
-      '执行子蓝图（以 definitionHash 冻结引用）。输入为 inputs(Json)，输出为 outputs(Json) + 可选强类型槽位。',
+      '执行子蓝图（以 definitionHash 冻结引用）。动态输入 pins = callee flow.start，动态输出 pins = callee flow.end。',
     execInputs: [{ name: 'in' }],
     execOutputs: [{ name: 'out' }],
-    inputs: [{ name: 'inputs', valueType: 'Json' }],
-    outputs: [
-      { name: 'outputs', valueType: 'Json' },
-      { name: 'decimal0', valueType: 'Decimal' },
-      { name: 'decimal1', valueType: 'Decimal' },
-      { name: 'ratio0', valueType: 'Ratio' },
-      { name: 'ratio1', valueType: 'Ratio' },
-      { name: 'string0', valueType: 'String' },
-      { name: 'string1', valueType: 'String' },
-      { name: 'boolean0', valueType: 'Boolean' },
-      { name: 'boolean1', valueType: 'Boolean' },
-      { name: 'datetime0', valueType: 'DateTime' },
-      { name: 'datetime1', valueType: 'DateTime' },
-      { name: 'json0', valueType: 'Json' },
-      { name: 'json1', valueType: 'Json' },
-    ],
+    inputs: [],
+    outputs: [{ name: 'outputs', valueType: 'Json' }],
     paramsSchema: {
       $schema: 'http://json-schema.org/draft-07/schema#',
       type: 'object',
       additionalProperties: false,
-      required: ['definitionId', 'definitionHash'],
+      required: [
+        'definitionId',
+        'definitionHash',
+        'calleeInputPins',
+        'calleeOutputPins',
+      ],
       properties: {
         definitionId: { type: 'string', minLength: 1 },
         definitionHash: { type: 'string', minLength: 1 },
-        entrypointKey: { type: 'string', minLength: 1 },
-        exposeOutputs: {
-          type: 'object',
-          additionalProperties: false,
-          properties: {
-            decimal: {
-              type: 'array',
-              items: { type: 'string', minLength: 1 },
-              maxItems: 2,
+        calleeInputPins: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['name', 'valueType'],
+            properties: {
+              name: { type: 'string', minLength: 1 },
+              label: { type: 'string' },
+              valueType: {
+                type: 'string',
+                enum: ['Decimal', 'Ratio', 'String', 'Boolean', 'DateTime', 'Json'],
+              },
+              required: { type: 'boolean' },
+              defaultValue: {},
             },
-            ratio: {
-              type: 'array',
-              items: { type: 'string', minLength: 1 },
-              maxItems: 2,
-            },
-            string: {
-              type: 'array',
-              items: { type: 'string', minLength: 1 },
-              maxItems: 2,
-            },
-            boolean: {
-              type: 'array',
-              items: { type: 'string', minLength: 1 },
-              maxItems: 2,
-            },
-            datetime: {
-              type: 'array',
-              items: { type: 'string', minLength: 1 },
-              maxItems: 2,
-            },
-            json: {
-              type: 'array',
-              items: { type: 'string', minLength: 1 },
-              maxItems: 2,
+          },
+        },
+        calleeOutputPins: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['name', 'valueType'],
+            properties: {
+              name: { type: 'string', minLength: 1 },
+              label: { type: 'string' },
+              valueType: {
+                type: 'string',
+                enum: ['Decimal', 'Ratio', 'String', 'Boolean', 'DateTime', 'Json'],
+              },
+              rounding: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['scale', 'mode'],
+                properties: {
+                  scale: { type: 'integer', minimum: 0 },
+                  mode: {
+                    type: 'string',
+                    enum: [
+                      'UP',
+                      'DOWN',
+                      'CEIL',
+                      'FLOOR',
+                      'HALF_UP',
+                      'HALF_DOWN',
+                      'HALF_EVEN',
+                      'HALF_CEIL',
+                      'HALF_FLOOR',
+                    ],
+                  },
+                },
+              },
             },
           },
         },
@@ -102,8 +91,6 @@ export const FLOW_CALL_DEFINITION_V1: NodeImplementation = {
   evaluate({ node, inputs, runtime }) {
     const definitionId = getString(node.params?.['definitionId']);
     const definitionHash = getString(node.params?.['definitionHash']);
-    const entrypointKey =
-      getString(node.params?.['entrypointKey']) ?? undefined;
 
     if (!definitionId || !definitionHash) {
       throw new RunnerExecutionError(
@@ -112,19 +99,21 @@ export const FLOW_CALL_DEFINITION_V1: NodeImplementation = {
       );
     }
 
-    const rawInputs = inputs['inputs'];
-    if (!isPlainObject(rawInputs)) {
-      throw new RunnerExecutionError(
-        'RUNNER_DETERMINISTIC_ERROR',
-        `flow.call_definition inputs.inputs must be an object: ${node.id}`,
-      );
+    const inputPins = readPinDefs(node.params?.['calleeInputPins']);
+    const outputPins = readPinDefs(node.params?.['calleeOutputPins']);
+
+    const callInputs: Record<string, unknown> = {};
+    for (const pin of inputPins) {
+      const v = (inputs as any)[pin.name] as unknown;
+      if (v !== undefined) {
+        callInputs[pin.name] = v;
+      }
     }
 
     const callee = runtime.callDefinition({
       definitionId,
       definitionHash,
-      entrypointKey,
-      inputs: rawInputs,
+      inputs: callInputs,
     });
 
     const rawCalleeOutputs = callee.outputs;
@@ -149,41 +138,14 @@ export const FLOW_CALL_DEFINITION_V1: NodeImplementation = {
       outputs: calleeOutputs,
     };
 
-    const exposeOutputsRaw = node.params?.['exposeOutputs'];
-    const exposeOutputs = isPlainObject(exposeOutputsRaw)
-      ? exposeOutputsRaw
-      : null;
-
-    for (const slot of EXPOSE_SLOTS) {
-      const listRaw = exposeOutputs ? exposeOutputs[slot.key] : undefined;
-      if (
-        !Array.isArray(listRaw) ||
-        listRaw.length === 0 ||
-        !listRaw.every(
-          (v): v is string => typeof v === 'string' && v.length > 0,
-        )
-      ) {
-        continue;
-      }
-
-      const list = listRaw;
-      for (let i = 0; i < list.length; i++) {
-        const outputKey = list[i];
-        if (!Object.hasOwn(calleeOutputs, outputKey)) {
-          throw new RunnerExecutionError(
-            'RUNNER_DETERMINISTIC_ERROR',
-            `callee output not found: ${definitionId}@${definitionHash} outputs.${outputKey}`,
-          );
-        }
-
-        const rawValue = calleeOutputs[outputKey];
-        const value = canonicalizeChosenValue(
-          slot.valueType,
-          rawValue,
-          `${node.id}.callee.outputs.${outputKey}`,
-        );
-        result[`${slot.portPrefix}${i}`] = value;
-      }
+    for (const pin of outputPins) {
+      const rawValue = calleeOutputs[pin.name];
+      const value = canonicalizeChosenValue(
+        pin.valueType,
+        rawValue,
+        `${node.id}.callee.outputs.${pin.name}`,
+      );
+      result[pin.name] = value;
     }
 
     return result;
@@ -192,3 +154,26 @@ export const FLOW_CALL_DEFINITION_V1: NodeImplementation = {
     return { kind: 'continue', port: 'out' };
   },
 };
+
+function readPinDefs(value: unknown): PinDef[] {
+  if (!Array.isArray(value)) return [];
+  const pins: PinDef[] = [];
+  for (const item of value) {
+    if (!isPlainObject(item)) continue;
+    const name = item['name'];
+    const valueType = item['valueType'];
+    if (typeof name !== 'string' || name.length === 0) continue;
+    if (
+      valueType !== 'Decimal' &&
+      valueType !== 'Ratio' &&
+      valueType !== 'String' &&
+      valueType !== 'Boolean' &&
+      valueType !== 'DateTime' &&
+      valueType !== 'Json'
+    ) {
+      continue;
+    }
+    pins.push(item as unknown as PinDef);
+  }
+  return pins;
+}

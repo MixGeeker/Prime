@@ -191,12 +191,12 @@ function run() {
   }).outputs;
   assert.deepStrictEqual(outWhile, { i: '3' });
 
-  // 3) call_definition：成功调用子蓝图并映射强类型槽位
+  // 3) call_definition：成功调用子蓝图并映射动态 pins
   const callee: GraphJsonV2 = {
     schemaVersion: 2,
     locals: [],
     nodes: [
-      { id: 'n_start', nodeType: 'flow.start' },
+      { id: 'n_start', nodeType: 'flow.start', params: { dynamicOutputs: [] } },
       {
         id: 'n_price',
         nodeType: 'core.const.decimal',
@@ -240,20 +240,19 @@ function run() {
     schemaVersion: 2,
     locals: [],
     nodes: [
-      { id: 'n_start', nodeType: 'flow.start' },
+      { id: 'n_start', nodeType: 'flow.start', params: { dynamicOutputs: [] } },
       {
         id: 'n_call',
         nodeType: 'flow.call_definition',
         params: {
           definitionId: 'def.callee',
           definitionHash: 'h1',
-          exposeOutputs: { decimal: ['price'], string: ['currency'] },
+          calleeInputPins: [],
+          calleeOutputPins: [
+            { name: 'price', valueType: 'Decimal' },
+            { name: 'currency', valueType: 'String' },
+          ],
         },
-      },
-      {
-        id: 'n_inputs',
-        nodeType: 'core.const.json',
-        params: { value: {} },
       },
       {
         id: 'n_end',
@@ -269,15 +268,11 @@ function run() {
     ],
     edges: [
       {
-        from: { nodeId: 'n_inputs', port: 'value' },
-        to: { nodeId: 'n_call', port: 'inputs' },
-      },
-      {
-        from: { nodeId: 'n_call', port: 'decimal0' },
+        from: { nodeId: 'n_call', port: 'price' },
         to: { nodeId: 'n_end', port: 'price' },
       },
       {
-        from: { nodeId: 'n_call', port: 'string0' },
+        from: { nodeId: 'n_call', port: 'currency' },
         to: { nodeId: 'n_end', port: 'currency' },
       },
       {
@@ -341,7 +336,7 @@ function run() {
     schemaVersion: 2,
     locals: [],
     nodes: [
-      { id: 'n_start', nodeType: 'flow.start' },
+      { id: 'n_start', nodeType: 'flow.start', params: { dynamicOutputs: [] } },
       { id: 'n_v', nodeType: 'core.const.decimal', params: { value: '1' } },
       {
         id: 'n_end',
@@ -367,17 +362,17 @@ function run() {
     schemaVersion: 2,
     locals: [],
     nodes: [
-      { id: 'n_start', nodeType: 'flow.start' },
+      { id: 'n_start', nodeType: 'flow.start', params: { dynamicOutputs: [] } },
       {
         id: 'n_call_c',
         nodeType: 'flow.call_definition',
         params: {
           definitionId: 'def.C',
           definitionHash: 'hC',
-          exposeOutputs: { decimal: ['v'] },
+          calleeInputPins: [],
+          calleeOutputPins: [{ name: 'v', valueType: 'Decimal' }],
         },
       },
-      { id: 'n_inputs', nodeType: 'core.const.json', params: { value: {} } },
       {
         id: 'n_end',
         nodeType: 'flow.end',
@@ -386,11 +381,7 @@ function run() {
     ],
     edges: [
       {
-        from: { nodeId: 'n_inputs', port: 'value' },
-        to: { nodeId: 'n_call_c', port: 'inputs' },
-      },
-      {
-        from: { nodeId: 'n_call_c', port: 'decimal0' },
+        from: { nodeId: 'n_call_c', port: 'v' },
         to: { nodeId: 'n_end', port: 'v' },
       },
     ],
@@ -410,17 +401,17 @@ function run() {
     schemaVersion: 2,
     locals: [],
     nodes: [
-      { id: 'n_start', nodeType: 'flow.start' },
+      { id: 'n_start', nodeType: 'flow.start', params: { dynamicOutputs: [] } },
       {
         id: 'n_call_b',
         nodeType: 'flow.call_definition',
         params: {
           definitionId: 'def.B',
           definitionHash: 'hB',
-          exposeOutputs: { decimal: ['v'] },
+          calleeInputPins: [],
+          calleeOutputPins: [{ name: 'v', valueType: 'Decimal' }],
         },
       },
-      { id: 'n_inputs', nodeType: 'core.const.json', params: { value: {} } },
       {
         id: 'n_end',
         nodeType: 'flow.end',
@@ -429,11 +420,7 @@ function run() {
     ],
     edges: [
       {
-        from: { nodeId: 'n_inputs', port: 'value' },
-        to: { nodeId: 'n_call_b', port: 'inputs' },
-      },
-      {
-        from: { nodeId: 'n_call_b', port: 'decimal0' },
+        from: { nodeId: 'n_call_b', port: 'v' },
         to: { nodeId: 'n_end', port: 'v' },
       },
     ],

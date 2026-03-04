@@ -193,10 +193,10 @@
             <el-form-item label="definitionHash">
               <el-input v-model="providerJobForm.definitionHash" placeholder="从发布结果复制 hash" />
             </el-form-item>
-            <el-form-item label="entrypointKey（可选）">
-              <el-input v-model="providerJobForm.entrypointKey" placeholder="main" />
+            <el-form-item label="entrypointKey（可选/遗留）">
+              <el-input v-model="providerJobForm.entrypointKey" placeholder="main（Graph v2 默认忽略）" />
             </el-form-item>
-            <el-form-item label="inputs.params（JSON）">
+            <el-form-item label="inputs（JSON）">
               <el-input v-model="providerJobForm.paramsJson" type="textarea" :autosize="{ minRows: 6, maxRows: 12 }" class="mono" />
               <div v-if="providerJobForm.paramsError" class="muted" style="color: var(--el-color-danger); margin-top: 6px">
                 {{ providerJobForm.paramsError }}
@@ -363,7 +363,7 @@ const providerTriggerLoading = ref(false);
 const providerJobForm = reactive({
   definitionId: 'example.tax-discount',
   definitionHash: '',
-  entrypointKey: 'main',
+  entrypointKey: '',
   paramsJson: JSON.stringify({ basePrice: '100.00', taxRate: '0.13', discountRate: '0.10' }, null, 2),
   optionsJson: '{}',
   mergeGlobalFacts: true,
@@ -610,7 +610,7 @@ async function saveFacts() {
 
 function fillTaxDiscountExample() {
   providerJobForm.definitionId = 'example.tax-discount';
-  providerJobForm.entrypointKey = 'main';
+  providerJobForm.entrypointKey = '';
   providerJobForm.paramsJson = JSON.stringify(
     { basePrice: '100.00', taxRate: '0.13', discountRate: '0.10' },
     null,
@@ -633,7 +633,7 @@ async function triggerProviderJob() {
     return;
   }
 
-  const paramsParsed = parseJsonObject(providerJobForm.paramsJson, 'params');
+  const paramsParsed = parseJsonObject(providerJobForm.paramsJson, 'inputs');
   if (!paramsParsed.ok) {
     providerJobForm.paramsError = paramsParsed.error;
     return;
@@ -650,7 +650,7 @@ async function triggerProviderJob() {
     const res = await providerSimulatorApi.triggerJob({
       definitionRef: { definitionId, definitionHash },
       entrypointKey: providerJobForm.entrypointKey?.trim() || undefined,
-      inputs: { params: paramsParsed.value },
+      inputs: paramsParsed.value,
       options: optionsParsed.value,
       mergeGlobalFacts: providerJobForm.mergeGlobalFacts,
     });

@@ -11,6 +11,7 @@ import { VuePlugin, Presets as VuePresets } from 'rete-vue-plugin';
 import { HistoryExtensions, HistoryPlugin, Presets as HistoryPresets } from 'rete-history-plugin';
 
 import type { GraphEdge, GraphJsonV2, GraphNode, NodeCatalog, NodeDef, ValueType } from '@/engine/types';
+import AddPinControl from './AddPinControl.vue';
 import {
   getUiNodePositionMap,
   removeEdgesForNode,
@@ -37,6 +38,58 @@ const container = ref<HTMLElement | null>(null);
 
 let editor: NodeEditor<Schemes> | null = null;
 let area: AreaPlugin<Schemes, any> | null = null;
+let isProgrammaticUpdate = false;
+
+type SocketMeta = {
+  element: HTMLElement;
+  nodeId: string;
+  side: 'input' | 'output';
+  key: string;
+  socketName: string;
+};
+const socketMetaByKey = new Map<string, SocketMeta>();
+
+function socketMetaKey(nodeId: string, side: 'input' | 'output', key: string): string {
+  return `${nodeId}::${side}::${key}`;
+}
+
+function clearDragHint() {
+  for (const it of socketMetaByKey.values()) {
+    it.element.classList.remove('ce-socket-compatible', 'ce-socket-incompatible', 'ce-socket-source');
+  }
+}
+
+function isCompatibleValueType(sourceType: string, targetType: string): boolean {
+  // exec 与 value 互斥；value 允许子类型赋值（Ratio ⊂ Decimal）
+  if (sourceType === 'exec') return targetType === 'exec';
+  if (targetType === 'exec') return false;
+  return sourceType === targetType || (sourceType === 'Ratio' && targetType === 'Decimal');
+}
+
+function applyDragHint(params: { initial: SocketMeta }) {
+  const { initial } = params;
+  const targetSide: SocketMeta['side'] = initial.side === 'output' ? 'input' : 'output';
+
+  for (const it of socketMetaByKey.values()) {
+    // 标记源端口
+    if (it.nodeId === initial.nodeId && it.side === initial.side && it.key === initial.key) {
+      it.element.classList.add('ce-socket-source');
+      continue;
+    }
+
+    if (it.side !== targetSide) {
+      it.element.classList.add('ce-socket-incompatible');
+      continue;
+    }
+
+    const ok =
+      initial.side === 'output'
+        ? isCompatibleValueType(initial.socketName, it.socketName)
+        : isCompatibleValueType(it.socketName, initial.socketName);
+
+    it.element.classList.add(ok ? 'ce-socket-compatible' : 'ce-socket-incompatible');
+  }
+}
 
 const sockets: Record<ValueType | 'exec', ClassicPreset.Socket> = {
   exec: new ClassicPreset.Socket('exec'),
@@ -109,6 +162,20 @@ function resolveNodeDefForGraphNode(def: NodeDef, graphNode: GraphNode): NodeDef
     return {
       ...def,
       inputs: [...def.inputs, ...dynamic],
+    };
+  }
+
+  if (graphNode.nodeType === 'flow.call_definition') {
+    const dynamicInputs = readDynamicPorts(params['calleeInputPins']);
+    const dynamicOutputs = readDynamicPorts(params['calleeOutputPins']);
+    if (dynamicInputs.length === 0 && dynamicOutputs.length === 0) return def;
+
+    const inputNames = new Set(def.inputs.map((p) => p.name));
+    const outputNames = new Set(def.outputs.map((p) => p.name));
+    return {
+      ...def,
+      inputs: [...def.inputs, ...dynamicInputs.filter((p) => !inputNames.has(p.name))],
+      outputs: [...def.outputs, ...dynamicOutputs.filter((p) => !outputNames.has(p.name))],
     };
   }
 
@@ -196,7 +263,55 @@ function buildReteNode(def: NodeDef, graphNode: GraphNode) {
     );
   }
 
+  if (graphNode.nodeType === 'flow.start' || graphNode.nodeType === 'flow.end') {
+    node.addControl(
+      'add_pin' as any,
+      {
+        __kind: 'add_pin',
+        label: '+ Add Pin',
+        onClick: () => {
+          void addPinForNode(graphNode.id);
+        },
+      } as any,
+    );
+  }
+
   return node;
+}
+
+function uniqueName(existing: string[], prefix = 'pin'): string {
+  let i = 1;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const name = `${prefix}${i}`;
+    if (!existing.includes(name)) return name;
+    i++;
+  }
+}
+
+async function addPinForNode(nodeId: string) {
+  const node = props.graph.nodes.find((n) => n.id === nodeId);
+  if (!node) return;
+  if (node.nodeType !== 'flow.start' && node.nodeType !== 'flow.end') return;
+
+  const key = node.nodeType === 'flow.start' ? 'dynamicOutputs' : 'dynamicInputs';
+  const params = isPlainObject(node.params) ? node.params : {};
+  const listRaw = params[key];
+  const list: any[] = Array.isArray(listRaw) ? [...listRaw] : [];
+
+  const existingNames = list
+    .map((it) => (isPlainObject(it) && typeof it.name === 'string' ? it.name.trim() : null))
+    .filter((v): v is string => Boolean(v));
+
+  list.push({
+    name: uniqueName(existingNames),
+    valueType: 'Decimal',
+    required: true,
+  });
+
+  node.params = { ...params, [key]: list };
+  emit('dirty');
+  await rebuildNode(nodeId);
 }
 
 function toGraphEdgeFromConnection(conn: Connection): { edge: GraphEdge; kind: 'value' | 'exec' } | null {
@@ -303,7 +418,22 @@ async function init() {
   const history = new HistoryPlugin<Schemes>({ timing: 200 });
 
   connection.addPreset(ConnectionPresets.classic.setup());
-  render.addPreset(VuePresets.classic.setup());
+  render.addPreset(
+    VuePresets.classic.setup({
+      customize: {
+        control(context) {
+          const payload = context.payload as any;
+          if (payload && payload.__kind === 'add_pin') {
+            return AddPinControl as any;
+          }
+          if (context.payload instanceof (ClassicPreset as any).InputControl) {
+            return (VuePresets as any).classic.Control;
+          }
+          return undefined;
+        },
+      },
+    }),
+  );
   history.addPreset(HistoryPresets.classic.setup());
   HistoryExtensions.keyboard(history);
 
@@ -311,6 +441,49 @@ async function init() {
   area.use(connection);
   area.use(render);
   area.use(history);
+
+  // 记录 socket 元信息（用于拖线时的类型兼容提示）
+  area.addPipe((context) => {
+    if (context.type === 'render') {
+      const d = context.data as any;
+      if (d?.type === 'socket') {
+        const meta: SocketMeta = {
+          element: d.element as HTMLElement,
+          nodeId: String(d.nodeId),
+          side: d.side as SocketMeta['side'],
+          key: String(d.key),
+          socketName: String(d.payload?.name ?? ''),
+        };
+        socketMetaByKey.set(socketMetaKey(meta.nodeId, meta.side, meta.key), meta);
+      }
+    }
+    return context;
+  });
+
+  // 拖线开始/结束：高亮可连接端口、灰化不兼容端口
+  (connection as any).addPipe((context: any) => {
+    if (context.type === 'connectionpick') {
+      clearDragHint();
+      const s = context.data?.socket;
+      if (s && s.nodeId && s.side && s.key) {
+        const key = socketMetaKey(String(s.nodeId), s.side, String(s.key));
+        const initial =
+          socketMetaByKey.get(key) ??
+          ({
+            element: s.element as HTMLElement,
+            nodeId: String(s.nodeId),
+            side: s.side as SocketMeta['side'],
+            key: String(s.key),
+            socketName: '',
+          } as SocketMeta);
+        applyDragHint({ initial });
+      }
+    }
+    if (context.type === 'connectiondrop') {
+      clearDragHint();
+    }
+    return context;
+  });
 
   // 可选：节点选择（用于右侧参数面板）
   const selector = AreaExtensions.selector();
@@ -327,10 +500,10 @@ async function init() {
 
   // 同步：节点选择/移动、节点/连线增删
   area.addPipe((context) => {
-    if (context.type === 'nodepicked') {
+    if (!isProgrammaticUpdate && context.type === 'nodepicked') {
       emit('select-node', String(context.data.id));
     }
-    if (context.type === 'nodetranslated') {
+    if (!isProgrammaticUpdate && context.type === 'nodetranslated') {
       setUiNodePosition(props.graph, String(context.data.id), {
         x: context.data.position.x,
         y: context.data.position.y,
@@ -341,15 +514,15 @@ async function init() {
   });
 
   editor.addPipe((context) => {
-    if (context.type === 'connectioncreated') {
+    if (!isProgrammaticUpdate && context.type === 'connectioncreated') {
       const mapped = toGraphEdgeFromConnection(context.data);
       if (mapped) upsertGraphEdge(mapped.kind, mapped.edge);
     }
-    if (context.type === 'connectionremoved') {
+    if (!isProgrammaticUpdate && context.type === 'connectionremoved') {
       const mapped = toGraphEdgeFromConnection(context.data);
       if (mapped) removeGraphEdge(mapped.kind, mapped.edge);
     }
-    if (context.type === 'noderemoved') {
+    if (!isProgrammaticUpdate && context.type === 'noderemoved') {
       const nodeId = String(context.data.id);
       props.graph.nodes = props.graph.nodes.filter((n) => n.id !== nodeId);
       props.graph.edges = removeEdgesForNode(props.graph.edges, nodeId);
@@ -392,17 +565,22 @@ async function init() {
   await AreaExtensions.zoomAt(area, editor.getNodes());
 }
 
-async function addConnection(edge: GraphEdge, kind: 'value' | 'exec') {
-  if (!editor) return;
+async function addConnection(edge: GraphEdge, kind: 'value' | 'exec'): Promise<boolean> {
+  if (!editor) return false;
   const sourceNode = editor.getNode(edge.from.nodeId);
   const targetNode = editor.getNode(edge.to.nodeId);
-  if (!sourceNode || !targetNode) return;
+  if (!sourceNode || !targetNode) return false;
 
   const sourceKey = portKey(kind === 'exec' ? 'exec_out' : 'out', edge.from.port);
   const targetKey = portKey(kind === 'exec' ? 'exec_in' : 'in', edge.to.port);
 
+  const sourcePort = (sourceNode.outputs as any)[String(sourceKey)];
+  const targetPort = (targetNode.inputs as any)[String(targetKey)];
+  if (!sourcePort || !targetPort) return false;
+
   const conn = new ClassicPreset.Connection(sourceNode, sourceKey as any, targetNode, targetKey as any);
   await editor.addConnection(conn as any);
+  return true;
 }
 
 async function removeConnection(edge: GraphEdge, kind: 'value' | 'exec') {
@@ -494,12 +672,123 @@ async function refreshNodeTitle(nodeId: string) {
   await area.update('node' as any, String(nodeId));
 }
 
+function pruneEdgesForNode(params: {
+  nodeId: string;
+  valueInputs: Set<string>;
+  valueOutputs: Set<string>;
+  execInputs: Set<string>;
+  execOutputs: Set<string>;
+}): { pruned: boolean } {
+  const { nodeId, valueInputs, valueOutputs, execInputs, execOutputs } = params;
+  let pruned = false;
+
+  // value edges
+  for (let i = props.graph.edges.length - 1; i >= 0; i--) {
+    const e = props.graph.edges[i]!;
+    if (e.from.nodeId === nodeId && !valueOutputs.has(e.from.port)) {
+      props.graph.edges.splice(i, 1);
+      pruned = true;
+      continue;
+    }
+    if (e.to.nodeId === nodeId && !valueInputs.has(e.to.port)) {
+      props.graph.edges.splice(i, 1);
+      pruned = true;
+      continue;
+    }
+  }
+
+  // exec edges
+  for (let i = props.graph.execEdges.length - 1; i >= 0; i--) {
+    const e = props.graph.execEdges[i]!;
+    if (e.from.nodeId === nodeId && !execOutputs.has(e.from.port)) {
+      props.graph.execEdges.splice(i, 1);
+      pruned = true;
+      continue;
+    }
+    if (e.to.nodeId === nodeId && !execInputs.has(e.to.port)) {
+      props.graph.execEdges.splice(i, 1);
+      pruned = true;
+      continue;
+    }
+  }
+
+  return { pruned };
+}
+
+async function rebuildNode(nodeId: string) {
+  if (!editor || !area) return;
+  const graphNode = props.graph.nodes.find((n) => n.id === nodeId) ?? null;
+  if (!graphNode) return;
+  const def = findNodeDef(graphNode.nodeType);
+  if (!def) return;
+
+  const resolvedDef = resolveNodeDefForGraphNode(def, graphNode);
+  const valueInputs = new Set(resolvedDef.inputs.map((p) => p.name));
+  const valueOutputs = new Set(resolvedDef.outputs.map((p) => p.name));
+  const execInputs = new Set((resolvedDef.execInputs ?? []).map((p) => p.name));
+  const execOutputs = new Set((resolvedDef.execOutputs ?? []).map((p) => p.name));
+
+  const { pruned } = pruneEdgesForNode({ nodeId, valueInputs, valueOutputs, execInputs, execOutputs });
+  if (pruned) {
+    emit('dirty');
+  }
+
+  const positions = getUiNodePositionMap(props.graph);
+  const pos = positions[nodeId];
+
+  isProgrammaticUpdate = true;
+  try {
+    // 1) 移除该节点相关的连接（仅 UI 层，不触碰 graph 数据）
+    for (const c of editor.getConnections() as any[]) {
+      if (String(c.source) === nodeId || String(c.target) === nodeId) {
+        await (editor as any).removeConnection(c.id);
+      }
+    }
+
+    // 2) 删除并重建节点（以刷新 ports）
+    const existing = editor.getNode(nodeId);
+    if (existing) {
+      await editor.removeNode(nodeId);
+    }
+
+    const node = buildReteNode(def, graphNode);
+    await editor.addNode(node);
+
+    if (pos) {
+      await area.translate(node.id, pos);
+    }
+
+    // 3) 仅重建与该节点相关的边（有效的才会被 addConnection 成功加入）
+    for (let i = props.graph.edges.length - 1; i >= 0; i--) {
+      const e = props.graph.edges[i]!;
+      if (e.from.nodeId !== nodeId && e.to.nodeId !== nodeId) continue;
+      const ok = await addConnection(e, 'value');
+      if (!ok) {
+        props.graph.edges.splice(i, 1);
+        emit('dirty');
+      }
+    }
+    for (let i = props.graph.execEdges.length - 1; i >= 0; i--) {
+      const e = props.graph.execEdges[i]!;
+      if (e.from.nodeId !== nodeId && e.to.nodeId !== nodeId) continue;
+      const ok = await addConnection(e, 'exec');
+      if (!ok) {
+        props.graph.execEdges.splice(i, 1);
+        emit('dirty');
+      }
+    }
+  } finally {
+    isProgrammaticUpdate = false;
+  }
+}
+
 defineExpose({
   addNode,
   connectValueEdge,
   connectExecEdge,
   removeExecEdge,
   refreshNodeTitle,
+  rebuildNode,
   focusNode,
   removeNode,
   findNodeDef,
@@ -524,5 +813,24 @@ onBeforeUnmount(() => {
   overflow: hidden;
   border: 1px solid var(--el-border-color-lighter);
   background: var(--el-fill-color-lighter);
+}
+
+:deep(.socket.ce-socket-incompatible) {
+  opacity: 0.25;
+  filter: grayscale(1);
+}
+
+:deep(.socket.ce-socket-compatible) {
+  opacity: 1;
+  filter: none;
+  border-color: var(--el-color-success);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--el-color-success) 40%, transparent);
+}
+
+:deep(.socket.ce-socket-source) {
+  opacity: 1;
+  filter: none;
+  border-color: var(--el-color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--el-color-primary) 40%, transparent);
 }
 </style>
