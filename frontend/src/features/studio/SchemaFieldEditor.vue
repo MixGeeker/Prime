@@ -137,9 +137,15 @@ const emit = defineEmits<{
 }>();
 
 function cloneJson<T>(v: T): T {
-  // params 约束为 JSON，可安全使用该策略；优先 structuredClone 以保留类型（如 null/number/bool）
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-  if (typeof (globalThis as any).structuredClone === 'function') return (globalThis as any).structuredClone(v) as T;
+  // params 约束为 JSON，可安全使用该策略；Proxy（Vue 响应式对象）会导致 structuredClone 抛错，需回退。
+  const cloneFn = (globalThis as any).structuredClone;
+  if (typeof cloneFn === 'function') {
+    try {
+      return cloneFn(v) as T;
+    } catch {
+      // fallback to JSON clone below
+    }
+  }
   return JSON.parse(JSON.stringify(v)) as T;
 }
 

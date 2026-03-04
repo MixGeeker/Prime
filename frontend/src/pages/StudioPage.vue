@@ -143,6 +143,14 @@
                 :model-value="(selectedNode.params as any) ?? {}"
                 @update:model-value="onSelectedNodeParamsUpdate"
               />
+              <el-alert
+                v-if="nodeParamsError"
+                type="error"
+                :closable="false"
+                show-icon
+                style="margin-top: 10px"
+                :title="nodeParamsError"
+              />
             </div>
           </el-tab-pane>
 
@@ -256,7 +264,6 @@ import { createEmptyGraph } from '@/features/studio/graph';
 import BlueprintCanvas from '@/features/studio/BlueprintCanvas.vue';
 import LocalsEditor from '@/features/studio/LocalsEditor.vue';
 import ParamsForm from '@/features/studio/ParamsForm.vue';
-import { useSettingsStore } from '@/stores/settings';
 
 const catalog = ref<NodeCatalog | null>(null);
 const catalogLoading = ref(false);
@@ -301,6 +308,7 @@ const previewInputsError = ref<string | null>(null);
 const previewOptionsError = ref<string | null>(null);
 const dryRunLoading = ref(false);
 const dryRunResult = ref<any | null>(null);
+const nodeParamsError = ref<string | null>(null);
 
 const callDefSyncing = new Set<string>();
 const callDefSyncedKeyByNodeId = new Map<string, string>();
@@ -377,6 +385,38 @@ function safeParseJson(text: string, field: string): { ok: true; value: any } | 
   }
 }
 
+function buildCallDefinitionRefKey(params: Record<string, unknown> | undefined): string | null {
+  if (!isPlainObject(params)) return null;
+  const definitionId = typeof params.definitionId === 'string' ? params.definitionId.trim() : '';
+  const definitionHash = typeof params.definitionHash === 'string' ? params.definitionHash.trim() : '';
+  if (!definitionId || !definitionHash) return null;
+  return `${definitionId}@${definitionHash}`;
+}
+
+function hasCallDefinitionPins(params: Record<string, unknown> | undefined): boolean {
+  if (!isPlainObject(params)) return false;
+  return Array.isArray((params as any).calleeInputPins) && Array.isArray((params as any).calleeOutputPins);
+}
+
+function resetCallDefinitionSyncState() {
+  for (const timer of callDefSyncTimers.values()) {
+    window.clearTimeout(timer);
+  }
+  callDefSyncTimers.clear();
+  callDefSyncing.clear();
+  callDefSyncedKeyByNodeId.clear();
+}
+
+function seedCallDefinitionSyncStateFromGraph() {
+  for (const node of graph.value.nodes) {
+    if (node.nodeType !== 'flow.call_definition') continue;
+    const params = isPlainObject(node.params) ? node.params : undefined;
+    const key = buildCallDefinitionRefKey(params);
+    if (!key || !hasCallDefinitionPins(params)) continue;
+    callDefSyncedKeyByNodeId.set(node.id, key);
+  }
+}
+
 async function loadCatalog() {
   catalogLoading.value = true;
   try {
@@ -423,6 +463,7 @@ async function openDraft(definitionId: string) {
 }
 
 function applyDraft(draft: DefinitionDraft) {
+  resetCallDefinitionSyncState();
   selectedDefinitionId.value = draft.definitionId;
   currentDraftInfo.value = {
     draftRevisionId: draft.draftRevisionId,
@@ -436,6 +477,7 @@ function applyDraft(draft: DefinitionDraft) {
     dirty.value = false;
   } else {
     graph.value = content as GraphJsonV2;
+    seedCallDefinitionSyncStateFromGraph();
     dirty.value = false;
   }
   runnerConfigText.value = JSON.stringify(draft.runnerConfig ?? {}, null, 2);
@@ -507,14 +549,25 @@ function updateNodeParams(nodeId: string, params: Record<string, unknown>) {
   if (!node) return;
   node.params = params;
   dirty.value = true;
+  const paramsError = nodePinNameValidationError(node.nodeType, params);
+  if (selectedNodeId.value === nodeId) {
+    nodeParamsError.value = paramsError;
+  }
   if (node.nodeType === 'flow.start' || node.nodeType === 'flow.end' || node.nodeType === 'flow.call_definition') {
-    void canvasRef.value?.rebuildNode(nodeId);
+    if (!paramsError) {
+      void canvasRef.value?.rebuildNode(nodeId);
+    }
   } else {
     void canvasRef.value?.refreshNodeTitle(nodeId);
   }
 
   if (node.nodeType === 'flow.call_definition' && !callDefSyncing.has(nodeId)) {
-    scheduleCallDefinitionPinsSync(nodeId);
+    const key = buildCallDefinitionRefKey(params);
+    const syncedKey = callDefSyncedKeyByNodeId.get(nodeId) ?? null;
+    const shouldSync = Boolean(key) && (!hasCallDefinitionPins(params) || syncedKey !== key);
+    if (shouldSync) {
+      scheduleCallDefinitionPinsSync(nodeId);
+    }
   }
 }
 
@@ -567,6 +620,37 @@ function pinSnapshotSignature(pins: unknown): string {
   return JSON.stringify(normalizePinDefs(pins));
 }
 
+function findDuplicatePinName(value: unknown): string | null {
+  if (!Array.isArray(value)) return null;
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!isPlainObject(item)) continue;
+    const name = typeof item.name === 'string' ? item.name.trim() : '';
+    if (!name) continue;
+    if (seen.has(name)) return name;
+    seen.add(name);
+  }
+  return null;
+}
+
+function nodePinNameValidationError(nodeType: string, params: Record<string, unknown>): string | null {
+  if (nodeType === 'flow.start') {
+    const dup = findDuplicatePinName((params as any).dynamicOutputs);
+    return dup ? `输入 pins 存在重复 name：${dup}` : null;
+  }
+  if (nodeType === 'flow.end') {
+    const dup = findDuplicatePinName((params as any).dynamicInputs);
+    return dup ? `输出 pins 存在重复 name：${dup}` : null;
+  }
+  if (nodeType === 'flow.call_definition') {
+    const inDup = findDuplicatePinName((params as any).calleeInputPins);
+    if (inDup) return `calleeInputPins 存在重复 name：${inDup}`;
+    const outDup = findDuplicatePinName((params as any).calleeOutputPins);
+    if (outDup) return `calleeOutputPins 存在重复 name：${outDup}`;
+  }
+  return null;
+}
+
 async function syncCallDefinitionPinsIfNeeded(nodeId: string) {
   const node = graph.value.nodes.find((n) => n.id === nodeId);
   if (!node || node.nodeType !== 'flow.call_definition') return;
@@ -574,12 +658,11 @@ async function syncCallDefinitionPinsIfNeeded(nodeId: string) {
 
   const definitionId = typeof node.params.definitionId === 'string' ? node.params.definitionId.trim() : '';
   const definitionHash = typeof node.params.definitionHash === 'string' ? node.params.definitionHash.trim() : '';
-  if (!definitionId || !definitionHash) return;
+  const key = buildCallDefinitionRefKey(node.params);
+  if (!key || !definitionId || !definitionHash) return;
 
-  const key = `${definitionId}@${definitionHash}`;
   const alreadySyncedKey = callDefSyncedKeyByNodeId.get(nodeId);
-  const hasPins =
-    Array.isArray((node.params as any).calleeInputPins) && Array.isArray((node.params as any).calleeOutputPins);
+  const hasPins = hasCallDefinitionPins(node.params);
   if (alreadySyncedKey === key && hasPins) {
     return;
   }
@@ -624,8 +707,22 @@ async function syncCallDefinitionPinsIfNeeded(nodeId: string) {
 function onSelectedNodeParamsUpdate(v: Record<string, unknown> | null) {
   const node = selectedNode.value;
   if (!node) return;
-  updateNodeParams(node.id, v ?? {});
+  const nextParams = v ?? {};
+  nodeParamsError.value = nodePinNameValidationError(node.nodeType, nextParams);
+  updateNodeParams(node.id, nextParams);
 }
+
+watch(
+  selectedNode,
+  (node) => {
+    if (!node || !isPlainObject(node.params)) {
+      nodeParamsError.value = null;
+      return;
+    }
+    nodeParamsError.value = nodePinNameValidationError(node.nodeType, node.params);
+  },
+  { immediate: true },
+);
 
 async function addNode(nodeType: string) {
   if (!catalog.value) {

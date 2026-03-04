@@ -188,13 +188,49 @@
           <template #header>触发一次 Job（投递 MQ）</template>
           <el-form label-position="top" :model="providerJobForm">
             <el-form-item label="definitionId">
-              <el-input v-model="providerJobForm.definitionId" placeholder="example.tax-discount" />
+              <el-select
+                v-model="providerJobForm.definitionId"
+                filterable
+                remote
+                clearable
+                placeholder="搜索 definitionId..."
+                :remote-method="searchProviderDefinitions"
+                :loading="providerDefinitionLoading"
+                style="width: 100%"
+                @change="onProviderDefinitionChange"
+              >
+                <el-option
+                  v-for="d in providerDefinitionOptions"
+                  :key="d.definitionId"
+                  :value="d.definitionId"
+                  :label="d.definitionId"
+                />
+              </el-select>
             </el-form-item>
             <el-form-item label="definitionHash">
-              <el-input v-model="providerJobForm.definitionHash" placeholder="从发布结果复制 hash" />
-            </el-form-item>
-            <el-form-item label="entrypointKey（可选/遗留）">
-              <el-input v-model="providerJobForm.entrypointKey" placeholder="main（Graph v2 默认忽略）" />
+              <el-select
+                v-model="providerJobForm.definitionHash"
+                clearable
+                placeholder="选择版本 hash"
+                :loading="providerReleasesLoading"
+                style="width: 100%"
+                @change="onProviderHashChange"
+              >
+                <el-option
+                  v-for="r in providerReleaseOptions"
+                  :key="r.definitionHash"
+                  :value="r.definitionHash"
+                  :label="formatProviderReleaseLabel(r)"
+                  :disabled="r.status !== 'published'"
+                />
+              </el-select>
+              <div
+                v-if="providerHashHint"
+                class="muted"
+                :style="{ marginTop: '6px', color: providerHashHintType === 'error' ? 'var(--el-color-danger)' : undefined }"
+              >
+                {{ providerHashHint }}
+              </div>
             </el-form-item>
             <el-form-item label="inputs（JSON）">
               <el-input v-model="providerJobForm.paramsJson" type="textarea" :autosize="{ minRows: 6, maxRows: 12 }" class="mono" />
@@ -211,7 +247,9 @@
 
             <div class="row">
               <el-switch v-model="providerJobForm.mergeGlobalFacts" active-text="合并全局 facts" inactive-text="不合并" />
-              <el-button :loading="providerTriggerLoading" type="primary" @click="triggerProviderJob">触发</el-button>
+              <el-button :loading="providerTriggerLoading" :disabled="!canTriggerProviderJob" type="primary" @click="triggerProviderJob">
+                触发
+              </el-button>
               <el-button @click="fillTaxDiscountExample">填充 tax-discount 示例</el-button>
             </div>
           </el-form>
@@ -359,11 +397,23 @@ const factsSaving = ref(false);
 const factsText = ref('{}');
 const factsError = ref<string | null>(null);
 
+type ProviderReleaseOption = {
+  definitionHash: string;
+  status: 'published' | 'deprecated';
+  publishedAt: string;
+};
+
+const providerDefinitionLoading = ref(false);
+const providerDefinitionOptions = ref<DefinitionSummary[]>([]);
+const providerReleasesLoading = ref(false);
+const providerReleaseOptions = ref<ProviderReleaseOption[]>([]);
+const providerHashHint = ref<string | null>('请选择 definitionId 以加载可用版本');
+const providerHashHintType = ref<'info' | 'warning' | 'error'>('info');
+
 const providerTriggerLoading = ref(false);
 const providerJobForm = reactive({
   definitionId: 'example.tax-discount',
   definitionHash: '',
-  entrypointKey: '',
   paramsJson: JSON.stringify({ basePrice: '100.00', taxRate: '0.13', discountRate: '0.10' }, null, 2),
   optionsJson: '{}',
   mergeGlobalFacts: true,
@@ -398,6 +448,9 @@ const dlqReplayForm = reactive({
 });
 
 const loadingAll = computed(() => opsLoading.value || defsLoading.value || jobsLoading.value || dlqLoading.value);
+const canTriggerProviderJob = computed(
+  () => Boolean(trimmedString(providerJobForm.definitionId) && trimmedString(providerJobForm.definitionHash)),
+);
 
 function parseJsonObject(text: string, field: string): { ok: true; value: Record<string, unknown> } | { ok: false; error: string } {
   try {
@@ -408,6 +461,152 @@ function parseJsonObject(text: string, field: string): { ok: true; value: Record
     return { ok: true, value: value as Record<string, unknown> };
   } catch (e) {
     return { ok: false, error: `${field} JSON 解析失败：${String(e)}` };
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object') return false;
+  const proto = Object.getPrototypeOf(value) as object | null;
+  return proto === Object.prototype || proto === null;
+}
+
+function trimmedString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function setProviderHashHint(
+  message: string | null,
+  type: 'info' | 'warning' | 'error' = 'info',
+) {
+  providerHashHint.value = message;
+  providerHashHintType.value = type;
+}
+
+function formatProviderReleaseLabel(release: ProviderReleaseOption): string {
+  const hashLabel =
+    release.definitionHash.length > 12
+      ? `${release.definitionHash.slice(0, 12)}…`
+      : release.definitionHash;
+  const dateLabel = release.publishedAt.slice(0, 10);
+  return `${hashLabel} (${dateLabel}) [${release.status}]`;
+}
+
+function buildProviderInputsTemplate(pins: unknown): Record<string, unknown> {
+  if (!Array.isArray(pins)) return {};
+  const template: Record<string, unknown> = {};
+  const seen = new Set<string>();
+  for (const pin of pins) {
+    if (!isPlainObject(pin)) continue;
+    const name = typeof pin.name === 'string' ? pin.name.trim() : '';
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    switch (pin.valueType) {
+      case 'Decimal':
+      case 'Ratio':
+        template[name] = '0';
+        break;
+      case 'String':
+        template[name] = '';
+        break;
+      case 'Boolean':
+        template[name] = false;
+        break;
+      case 'DateTime':
+        template[name] = new Date().toISOString();
+        break;
+      case 'Json':
+        template[name] = null;
+        break;
+      default:
+        template[name] = null;
+        break;
+    }
+  }
+  return template;
+}
+
+async function searchProviderDefinitions(q: string) {
+  providerDefinitionLoading.value = true;
+  try {
+    const res = await backendApi.listDefinitions({ q, limit: 50 });
+    providerDefinitionOptions.value = res.items;
+  } catch (e) {
+    ElMessage.error(normalizeHttpError(e));
+  } finally {
+    providerDefinitionLoading.value = false;
+  }
+}
+
+async function generateProviderInputsFromRelease(definitionId: string, definitionHash: string) {
+  const release = await backendApi.getRelease(definitionId, definitionHash);
+  const contentRaw = isPlainObject(release) ? release.content : null;
+  if (!isPlainObject(contentRaw)) return;
+  const nodes = Array.isArray(contentRaw.nodes) ? contentRaw.nodes : [];
+  const startNode = nodes.find((n) => isPlainObject(n) && n.nodeType === 'flow.start');
+  if (!isPlainObject(startNode)) return;
+  const params = isPlainObject(startNode.params) ? startNode.params : {};
+  const template = buildProviderInputsTemplate(params.dynamicOutputs);
+  providerJobForm.paramsJson = JSON.stringify(template, null, 2);
+  providerJobForm.paramsError = null;
+}
+
+async function onProviderDefinitionChange() {
+  providerJobForm.definitionHash = '';
+  providerReleaseOptions.value = [];
+  providerJobForm.paramsJson = '{}';
+  providerJobForm.paramsError = null;
+
+  const definitionId = trimmedString(providerJobForm.definitionId);
+  if (!definitionId) {
+    setProviderHashHint('请选择 definitionId 以加载可用版本', 'info');
+    return;
+  }
+
+  providerReleasesLoading.value = true;
+  setProviderHashHint('正在加载可用版本...', 'info');
+  try {
+    const releases = await backendApi.listReleases(definitionId);
+    providerReleaseOptions.value = releases.map((it) => ({
+      definitionHash: it.definitionHash,
+      status: it.status,
+      publishedAt: it.publishedAt,
+    }));
+
+    if (providerReleaseOptions.value.length === 0) {
+      setProviderHashHint('该 definition 暂无 release，请先发布。', 'warning');
+      return;
+    }
+
+    const latestPublished = providerReleaseOptions.value.find((r) => r.status === 'published') ?? null;
+    if (!latestPublished) {
+      setProviderHashHint('该 definition 暂无可用的 published 版本。', 'warning');
+      return;
+    }
+
+    providerJobForm.definitionHash = latestPublished.definitionHash;
+    await generateProviderInputsFromRelease(definitionId, latestPublished.definitionHash);
+    setProviderHashHint(null);
+  } catch (e) {
+    setProviderHashHint(`加载版本失败：${normalizeHttpError(e)}`, 'error');
+    ElMessage.error(normalizeHttpError(e));
+  } finally {
+    providerReleasesLoading.value = false;
+  }
+}
+
+async function onProviderHashChange() {
+  const definitionId = trimmedString(providerJobForm.definitionId);
+  const definitionHash = trimmedString(providerJobForm.definitionHash);
+  if (!definitionId || !definitionHash) {
+    setProviderHashHint('请选择一个 published 版本后再触发。', 'info');
+    return;
+  }
+  try {
+    await generateProviderInputsFromRelease(definitionId, definitionHash);
+    setProviderHashHint(null);
+  } catch (e) {
+    setProviderHashHint(`加载版本内容失败：${normalizeHttpError(e)}`, 'error');
+    ElMessage.error(normalizeHttpError(e));
   }
 }
 
@@ -608,26 +807,22 @@ async function saveFacts() {
   }
 }
 
-function fillTaxDiscountExample() {
+async function fillTaxDiscountExample() {
   providerJobForm.definitionId = 'example.tax-discount';
-  providerJobForm.entrypointKey = '';
-  providerJobForm.paramsJson = JSON.stringify(
-    { basePrice: '100.00', taxRate: '0.13', discountRate: '0.10' },
-    null,
-    2,
-  );
   providerJobForm.optionsJson = '{}';
   providerJobForm.mergeGlobalFacts = true;
   providerJobForm.paramsError = null;
   providerJobForm.optionsError = null;
+  await searchProviderDefinitions('example.tax-discount');
+  await onProviderDefinitionChange();
 }
 
 async function triggerProviderJob() {
   providerJobForm.paramsError = null;
   providerJobForm.optionsError = null;
 
-  const definitionId = providerJobForm.definitionId.trim();
-  const definitionHash = providerJobForm.definitionHash.trim();
+  const definitionId = trimmedString(providerJobForm.definitionId);
+  const definitionHash = trimmedString(providerJobForm.definitionHash);
   if (!definitionId || !definitionHash) {
     ElMessage.warning('definitionId / definitionHash 不能为空');
     return;
@@ -649,7 +844,6 @@ async function triggerProviderJob() {
   try {
     const res = await providerSimulatorApi.triggerJob({
       definitionRef: { definitionId, definitionHash },
-      entrypointKey: providerJobForm.entrypointKey?.trim() || undefined,
       inputs: paramsParsed.value,
       options: optionsParsed.value,
       mergeGlobalFacts: providerJobForm.mergeGlobalFacts,
@@ -729,6 +923,7 @@ async function refreshAll() {
 
 onMounted(() => {
   void refreshAll();
+  void searchProviderDefinitions('');
 });
 </script>
 

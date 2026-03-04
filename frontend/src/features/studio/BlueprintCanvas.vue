@@ -133,13 +133,17 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function readDynamicPorts(value: unknown): Array<{ name: string; valueType: ValueType }> {
   if (!Array.isArray(value)) return [];
   const ports: Array<{ name: string; valueType: ValueType }> = [];
+  const seen = new Set<string>();
   for (const item of value) {
     if (!isPlainObject(item)) continue;
     const name = item['name'];
     const valueType = item['valueType'];
     if (typeof name !== 'string' || !name.trim()) continue;
     if (!isValueType(valueType)) continue;
-    ports.push({ name: name.trim(), valueType });
+    const normalizedName = name.trim();
+    if (seen.has(normalizedName)) continue;
+    seen.add(normalizedName);
+    ports.push({ name: normalizedName, valueType });
   }
   return ports;
 }
