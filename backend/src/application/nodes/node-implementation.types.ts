@@ -10,6 +10,16 @@ import type { NodeDef } from '../catalog/node-catalog.types';
 import type { GraphNode } from '../validation/graph-json.types';
 
 export interface RunnerRuntimeContext {
+  /**
+   * Graph v2：单一 inputs 容器（Pin 即契约）。
+   * - 对应 job payload 的 inputs（仅保留 start pins 声明过的字段，且已 canonicalize）
+   */
+  inputs: Record<string, unknown>;
+
+  /**
+   * 兼容字段：旧节点族仍可能读取 globals/params。
+   * Graph v2 下两者会指向同一个 inputs 容器。
+   */
   globals: Record<string, unknown>;
   params: Record<string, unknown>;
   getLocal(name: string): unknown;
@@ -19,10 +29,7 @@ export interface RunnerRuntimeContext {
     definitionId: string;
     definitionHash: string;
     entrypointKey?: string;
-    inputs: {
-      globals: Record<string, unknown>;
-      params: Record<string, unknown>;
-    };
+    inputs: Record<string, unknown>;
   }): {
     outputs: Record<string, unknown>;
   };

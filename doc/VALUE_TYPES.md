@@ -1,6 +1,6 @@
 # Compute Engine Value Types（类型系统）
 
-> 本文档定义 `valueType` 的标准：用于 Node Catalog、BlueprintGraph 的 `globals/entrypoints(params)/locals/outputs` 以及运行时校验。
+> 本文档定义 `valueType` 的标准：用于 Node Catalog、BlueprintGraph v2 的 `flow.start` 输入 pins / `locals` / `flow.end` 输出 pins 以及运行时校验。
 >
 > 目标：保证 Engine/Provider/Editor 之间对“值的语义与结构”有一致理解，从而支持：静态校验、确定性计算、可追溯与可回放。
 
@@ -17,7 +17,7 @@
 - 原子类型：`String | Boolean | Decimal | Ratio | DateTime | Json`
 
 > 说明（重要）：Compute Engine 的定位是“计算底座”，MVP **不内置 Money/Rate/Currency 等领域语义**。
-> - 如果集成方需要携带币种/方向等信息，建议把它们作为独立变量（例如 `inputs.params.currency`）或放在 `Json` 里（但引擎不会对其做强校验与 typed canonicalize）。
+> - 如果集成方需要携带币种/方向等信息，建议把它们作为独立变量（例如 `inputs.currency`）或放在 `Json` 里（但引擎不会对其做强校验与 typed canonicalize）。
 
 ---
 

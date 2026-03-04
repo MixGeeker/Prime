@@ -1,78 +1,66 @@
 {
-  "globals": [],
-  "entrypoints": [
-    {
-      "key": "main",
-      "params": [
-        { "name": "basePrice", "valueType": "Decimal", "required": true, "description": "基础价格" },
-        { "name": "taxRate", "valueType": "Ratio", "required": true, "description": "税率(0..1)" },
-        { "name": "discountRate", "valueType": "Ratio", "required": true, "description": "折扣(0..1)" }
-      ],
-      "from": { "nodeId": "n_start", "port": "out" }
-    }
-  ],
+  "schemaVersion": 2,
   "locals": [],
   "nodes": [
-    { "id": "n_start", "nodeType": "flow.start" },
-    { "id": "n_out_finalPrice", "nodeType": "outputs.set.decimal", "params": { "key": "finalPrice" } },
-    { "id": "n_return", "nodeType": "flow.return" },
-
-    { "id": "n_base", "nodeType": "inputs.params.decimal", "params": { "name": "basePrice" } },
-    { "id": "n_taxRate", "nodeType": "inputs.params.ratio", "params": { "name": "taxRate" } },
-    { "id": "n_discountRate", "nodeType": "inputs.params.ratio", "params": { "name": "discountRate" } },
-
+    {
+      "id": "n_start",
+      "nodeType": "flow.start",
+      "params": {
+        "dynamicOutputs": [
+          { "name": "basePrice", "label": "基础价格", "valueType": "Decimal", "required": true },
+          { "name": "taxRate", "label": "税率(0..1)", "valueType": "Ratio", "required": true },
+          { "name": "discountRate", "label": "折扣(0..1)", "valueType": "Ratio", "required": true }
+        ]
+      }
+    },
+    {
+      "id": "n_end",
+      "nodeType": "flow.end",
+      "params": {
+        "dynamicInputs": [
+          {
+            "name": "finalPrice",
+            "label": "最终价格",
+            "valueType": "Decimal",
+            "rounding": { "scale": 2, "mode": "HALF_UP" }
+          }
+        ]
+      }
+    },
     { "id": "n_tax", "nodeType": "math.mul" },
     { "id": "n_priceWithTax", "nodeType": "math.add" },
-
     { "id": "n_one", "nodeType": "core.const.decimal", "params": { "value": "1" } },
     { "id": "n_discountFactor", "nodeType": "math.sub" },
-
     { "id": "n_final", "nodeType": "math.mul" }
   ],
   "edges": [
-    { "from": { "nodeId": "n_base", "port": "value" }, "to": { "nodeId": "n_tax", "port": "a" } },
-    { "from": { "nodeId": "n_taxRate", "port": "value" }, "to": { "nodeId": "n_tax", "port": "b" } },
+    { "from": { "nodeId": "n_start", "port": "basePrice" }, "to": { "nodeId": "n_tax", "port": "a" } },
+    { "from": { "nodeId": "n_start", "port": "taxRate" }, "to": { "nodeId": "n_tax", "port": "b" } },
 
-    { "from": { "nodeId": "n_base", "port": "value" }, "to": { "nodeId": "n_priceWithTax", "port": "a" } },
+    { "from": { "nodeId": "n_start", "port": "basePrice" }, "to": { "nodeId": "n_priceWithTax", "port": "a" } },
     { "from": { "nodeId": "n_tax", "port": "value" }, "to": { "nodeId": "n_priceWithTax", "port": "b" } },
 
     { "from": { "nodeId": "n_one", "port": "value" }, "to": { "nodeId": "n_discountFactor", "port": "a" } },
-    { "from": { "nodeId": "n_discountRate", "port": "value" }, "to": { "nodeId": "n_discountFactor", "port": "b" } },
+    { "from": { "nodeId": "n_start", "port": "discountRate" }, "to": { "nodeId": "n_discountFactor", "port": "b" } },
 
     { "from": { "nodeId": "n_priceWithTax", "port": "value" }, "to": { "nodeId": "n_final", "port": "a" } },
     { "from": { "nodeId": "n_discountFactor", "port": "value" }, "to": { "nodeId": "n_final", "port": "b" } },
-    { "from": { "nodeId": "n_final", "port": "value" }, "to": { "nodeId": "n_out_finalPrice", "port": "value" } }
+
+    { "from": { "nodeId": "n_final", "port": "value" }, "to": { "nodeId": "n_end", "port": "finalPrice" } }
   ],
-  "execEdges": [
-    { "from": { "nodeId": "n_start", "port": "out" }, "to": { "nodeId": "n_out_finalPrice", "port": "in" } },
-    { "from": { "nodeId": "n_out_finalPrice", "port": "out" }, "to": { "nodeId": "n_return", "port": "in" } }
-  ],
-  "outputs": [
-    {
-      "key": "finalPrice",
-      "valueType": "Decimal",
-      "rounding": { "scale": 2, "mode": "HALF_UP" }
-    }
-  ],
+  "execEdges": [{ "from": { "nodeId": "n_start", "port": "out" }, "to": { "nodeId": "n_end", "port": "in" } }],
   "metadata": {
     "ui": {
       "nodes": {
         "n_start": { "x": 0, "y": 0 },
-        "n_out_finalPrice": { "x": 650, "y": 0 },
-        "n_return": { "x": 920, "y": 0 },
-
-        "n_base": { "x": -260, "y": -180 },
-        "n_taxRate": { "x": -260, "y": -70 },
-        "n_discountRate": { "x": -260, "y": 40 },
-
         "n_tax": { "x": 80, "y": -140 },
         "n_priceWithTax": { "x": 360, "y": -140 },
-
         "n_one": { "x": 80, "y": 20 },
         "n_discountFactor": { "x": 360, "y": 20 },
-
-        "n_final": { "x": 650, "y": -60 }
+        "n_final": { "x": 650, "y": -60 },
+        "n_end": { "x": 920, "y": 0 }
       }
     }
   }
 }
+

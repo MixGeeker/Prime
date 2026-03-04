@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import type { MqClient } from './mq';
 import type { Storage } from './storage';
-import type { InputsCatalogV1, JobRequestedV1, StoredJob } from './types';
+import type { InputsCatalogV2, JobRequestedV1, StoredJob } from './types';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object') return false;
@@ -31,13 +31,13 @@ export async function createServer(params: {
   });
 
   app.get('/catalog/inputs', async () => {
-    const catalog: InputsCatalogV1 = {
-      schemaVersion: 1,
-      globals: [
+    const catalog: InputsCatalogV2 = {
+      schemaVersion: 2,
+      inputs: [
         {
           name: 'companyName',
           valueType: 'String',
-          description: '公司名称（示例全局变量）',
+          description: '公司名称（示例：更像“全局 fact”，但在 Graph v2 中就是一个 inputs key）',
           example: 'Prime Inc.',
         },
         {
@@ -52,12 +52,10 @@ export async function createServer(params: {
           description: '汇率（示例）',
           example: '7.1234',
         },
-      ],
-      params: [
         {
           name: 'productId',
           valueType: 'String',
-          description: '商品 ID',
+          description: '商品 ID（示例：更像“请求参数”，但在 Graph v2 中就是一个 inputs key）',
           example: 'p_123',
         },
         {
@@ -138,21 +136,17 @@ export async function createServer(params: {
 
     const mergeGlobalFacts = body['mergeGlobalFacts'] !== false;
     const inputRaw = isPlainObject(body['inputs']) ? (body['inputs'] as Record<string, unknown>) : {};
-    const globalsRaw = isPlainObject(inputRaw['globals']) ? (inputRaw['globals'] as Record<string, unknown>) : {};
-    const paramsRaw = isPlainObject(inputRaw['params']) ? (inputRaw['params'] as Record<string, unknown>) : {};
 
-    const mergedGlobals = mergeGlobalFacts
-      ? { ...params.storage.getGlobalFacts(), ...globalsRaw }
-      : globalsRaw;
+    const mergedBase = mergeGlobalFacts
+      ? { ...params.storage.getGlobalFacts(), ...inputRaw }
+      : inputRaw;
 
     const inputs: Record<string, unknown> = {
-      ...inputRaw,
-      globals: mergedGlobals,
-      params: paramsRaw,
+      ...mergedBase,
       _meta: {
         provider: 'provider-simulator',
         requestedAt: new Date().toISOString(),
-        ...(isPlainObject(inputRaw['_meta']) ? (inputRaw['_meta'] as Record<string, unknown>) : {}),
+        ...(isPlainObject(mergedBase['_meta']) ? (mergedBase['_meta'] as Record<string, unknown>) : {}),
       },
     };
 

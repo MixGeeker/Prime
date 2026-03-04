@@ -18,10 +18,7 @@ export interface RunnerDefinitionBundleItem {
 export interface RunnerRunParams {
   content: Record<string, unknown>;
   entrypointKey?: string;
-  inputs: {
-    globals: Record<string, unknown>;
-    params: Record<string, unknown>;
-  };
+  inputs: Record<string, unknown>;
   runnerConfig?: Record<string, unknown> | null;
   options?: Record<string, unknown> | null;
   definitionBundle?: RunnerDefinitionBundleItem[];

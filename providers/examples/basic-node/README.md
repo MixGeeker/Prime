@@ -6,10 +6,9 @@
 
 ## inputs 约定（建议）
 
-- `inputs.globals`：全局输入（对应 BlueprintGraph 的 `globals[]` 声明）
-- `inputs.params`：入口参数（对应 BlueprintGraph 的 `entrypoints[key].params[]` 声明）
+- `inputs` 是一个单一 object：`inputs.<pinName>`（对应 BlueprintGraph v2 的 `flow.start` pins 声明）
 - **允许多余字段**：`inputs` 可携带其它字段（例如 `inputs._meta/inputs.facts/inputs.resolved`），但 Compute Engine 默认不会读取，也不会把未声明字段纳入 `inputsHash`。
-  - 若希望某些元信息进入 `inputsHash`：应把它们声明为 `globals/params`（可用 `Json` 聚合字段，例如 `globals.meta`）。
+  - 若希望某些元信息进入 `inputsHash`：应把它们声明为一个 start pin（可用 `Json` 聚合字段，例如 `inputs.meta`）。
 
 ## Job Requested（概念示意）
 
@@ -23,8 +22,9 @@
   },
   "entrypointKey": "main",
   "inputs": {
-    "globals": { "companyId": "c1", "meta": { "fxRateAsOf": "2026-03-02T00:00:00Z" } },
-    "params": { "quantity": "2" },
+    "companyId": "c1",
+    "quantity": "2",
+    "meta": { "fxRateAsOf": "2026-03-02T00:00:00Z" },
     "_meta": { "debug": "allowed but ignored by default" }
   }
 }

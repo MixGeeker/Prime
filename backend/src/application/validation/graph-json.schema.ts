@@ -161,3 +161,73 @@ export const BLUEPRINT_GRAPH_SCHEMA_V1 = {
     },
   },
 } as const;
+
+export const BLUEPRINT_GRAPH_SCHEMA_V2 = {
+  $schema: 'http://json-schema.org/draft-07/schema#',
+  type: 'object',
+  // top-level 允许扩展字段（例如 metadata/resolvers），避免 UI/生态字段破坏执行字段。
+  additionalProperties: true,
+  required: ['schemaVersion', 'locals', 'nodes', 'edges', 'execEdges'],
+  properties: {
+    schemaVersion: { const: 2 },
+    locals: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name', 'valueType'],
+        properties: {
+          name: {
+            type: 'string',
+            minLength: 1,
+            pattern: '^[A-Za-z0-9_-]+$',
+          },
+          valueType: { enum: VALUE_TYPES },
+          // default 的具体校验需要结合 valueType 做 typed validate，这里先不限制类型。
+          default: {},
+          description: { type: 'string' },
+        },
+      },
+    },
+    nodes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['id', 'nodeType'],
+        properties: {
+          id: { type: 'string', minLength: 1 },
+          nodeType: { type: 'string', minLength: 1 },
+          params: { type: 'object' },
+        },
+      },
+    },
+    edges: { $ref: '#/definitions/edgeArray' },
+    execEdges: { $ref: '#/definitions/edgeArray' },
+    metadata: {},
+    resolvers: {},
+  },
+  definitions: {
+    endpoint: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['nodeId', 'port'],
+      properties: {
+        nodeId: { type: 'string', minLength: 1 },
+        port: { type: 'string', minLength: 1 },
+      },
+    },
+    edgeArray: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['from', 'to'],
+        properties: {
+          from: { $ref: '#/definitions/endpoint' },
+          to: { $ref: '#/definitions/endpoint' },
+        },
+      },
+    },
+  },
+} as const;

@@ -11,6 +11,11 @@ export type RoundingMode =
   | 'HALF_CEIL'
   | 'HALF_FLOOR';
 
+export interface RoundingDef {
+  scale: number;
+  mode: RoundingMode;
+}
+
 export interface NodePortDef {
   name: string;
   valueType: ValueType;
@@ -90,10 +95,23 @@ export interface GraphEntrypoint {
 export interface GraphOutput {
   key: string;
   valueType: ValueType;
-  rounding?: {
-    scale: number;
-    mode: RoundingMode;
-  };
+  rounding?: RoundingDef;
+}
+
+/**
+ * UE Blueprint 风格：Pin 即契约（用于 flow.start / flow.end 的动态端口定义）。
+ * - name: pin 名（也是参数/输出 key）
+ * - valueType: 端口类型
+ * - required/defaultValue: 输入 pin 的运行时约束（start 输出 pin）
+ * - rounding: 输出 pin 的后处理（end 输入 pin）
+ */
+export interface PinDef {
+  name: string;
+  label?: string;
+  valueType: ValueType;
+  required?: boolean;
+  defaultValue?: unknown;
+  rounding?: RoundingDef;
 }
 
 export interface GraphJsonV1 {
@@ -108,13 +126,25 @@ export interface GraphJsonV1 {
   resolvers?: unknown;
 }
 
+export interface GraphJsonV2 {
+  schemaVersion: 2;
+  locals: GraphLocalDef[];
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  execEdges: GraphEdge[];
+  metadata?: unknown;
+  resolvers?: unknown;
+}
+
+export type GraphJson = GraphJsonV1 | GraphJsonV2;
+
 export type ContentType = 'graph_json';
 
 export interface DefinitionDraft {
   definitionId: string;
   draftRevisionId: string;
   contentType: ContentType;
-  content: GraphJsonV1;
+  content: GraphJson;
   outputSchema: Record<string, unknown> | null;
   runnerConfig: Record<string, unknown> | null;
   createdAt: string;

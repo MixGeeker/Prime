@@ -7,12 +7,11 @@ import type {
   NodePortDef,
   ValueType,
 } from '../catalog/node-catalog.types';
-import { BLUEPRINT_GRAPH_SCHEMA_V1, ROUNDING_MODES } from './graph-json.schema';
+import { BLUEPRINT_GRAPH_SCHEMA_V2, ROUNDING_MODES } from './graph-json.schema';
 import type {
-  GraphEntrypoint,
-  GraphJsonV1,
+  GraphJsonV2,
   GraphNode,
-  GraphOutput,
+  PinDef,
   RoundingMode,
 } from './graph-json.types';
 import type { ValidationIssue } from './validation-issue';
@@ -36,7 +35,7 @@ export class GraphValidatorService {
       strict: false,
     });
     addFormats(this.ajv);
-    this.validateGraphSchema = this.ajv.compile(BLUEPRINT_GRAPH_SCHEMA_V1);
+    this.validateGraphSchema = this.ajv.compile(BLUEPRINT_GRAPH_SCHEMA_V2);
   }
 
   validateGraph(content: unknown): ValidationIssue[] {
@@ -51,7 +50,7 @@ export class GraphValidatorService {
       return issues;
     }
 
-    const graph = content as GraphJsonV1;
+    const graph = content as GraphJsonV2;
 
     // 2) 唯一性校验（names/ids/keys）
     this.validateUniqueness(graph, issues);
@@ -62,8 +61,11 @@ export class GraphValidatorService {
     // 4) nodes：catalog + params 校验；并建立 nodeId -> (node, nodeDef) 索引
     const nodeIndex = this.buildNodeIndex(graph, issues);
 
-    // 4.1) 内置节点的跨字段引用校验（globals/params/locals）
+    // 4.1) 内置节点的跨字段引用校验（locals）
     this.validateBuiltinReferences(graph, nodeIndex, issues);
+
+    // 4.2) start/end（UE Pin 即契约）
+    this.validateStartEnd(graph, nodeIndex, issues);
 
     // 5) value edges：端口合法性、单入边、类型兼容、value-DAG
     const valueDag = this.validateValueEdges(graph, nodeIndex, issues);
@@ -79,12 +81,6 @@ export class GraphValidatorService {
     // 6) exec edges：端口合法性（允许环）
     this.validateExecEdges(graph, nodeIndex, issues);
 
-    // 7) entrypoints：必须包含 main；推荐使用 from 指向 exec 输出端口（入口事件节点）；兼容旧 to 指向 exec 输入端口
-    this.validateEntrypoints(graph.entrypoints, nodeIndex, issues);
-
-    // 8) outputs：rounding 约束；并校验 outputs.set.* 覆盖声明 outputs
-    this.validateOutputs(graph.outputs, nodeIndex, issues);
-
     return issues;
   }
 
@@ -98,22 +94,7 @@ export class GraphValidatorService {
     };
   }
 
-  private validateUniqueness(graph: GraphJsonV1, issues: ValidationIssue[]) {
-    const globalNames = new Set<string>();
-    for (let i = 0; i < graph.globals.length; i++) {
-      const g = graph.globals[i];
-      if (globalNames.has(g.name)) {
-        issues.push({
-          code: 'GRAPH_DUPLICATE_GLOBAL_NAME',
-          severity: 'error',
-          path: `/globals/${i}/name`,
-          message: `duplicate global name: ${g.name}`,
-        });
-      } else {
-        globalNames.add(g.name);
-      }
-    }
-
+  private validateUniqueness(graph: GraphJsonV2, issues: ValidationIssue[]) {
     const localNames = new Set<string>();
     for (let i = 0; i < graph.locals.length; i++) {
       const l = graph.locals[i];
@@ -126,36 +107,6 @@ export class GraphValidatorService {
         });
       } else {
         localNames.add(l.name);
-      }
-    }
-
-    const entrypointKeys = new Set<string>();
-    for (let i = 0; i < graph.entrypoints.length; i++) {
-      const ep = graph.entrypoints[i];
-      if (entrypointKeys.has(ep.key)) {
-        issues.push({
-          code: 'GRAPH_DUPLICATE_ENTRYPOINT_KEY',
-          severity: 'error',
-          path: `/entrypoints/${i}/key`,
-          message: `duplicate entrypoint key: ${ep.key}`,
-        });
-      } else {
-        entrypointKeys.add(ep.key);
-      }
-
-      const paramNames = new Set<string>();
-      for (let j = 0; j < ep.params.length; j++) {
-        const p = ep.params[j];
-        if (paramNames.has(p.name)) {
-          issues.push({
-            code: 'GRAPH_DUPLICATE_ENTRYPOINT_PARAM_NAME',
-            severity: 'error',
-            path: `/entrypoints/${i}/params/${j}/name`,
-            message: `duplicate entrypoint param name: ${p.name}`,
-          });
-        } else {
-          paramNames.add(p.name);
-        }
       }
     }
 
@@ -173,57 +124,9 @@ export class GraphValidatorService {
         nodeIds.add(n.id);
       }
     }
-
-    const outputKeys = new Set<string>();
-    for (let i = 0; i < graph.outputs.length; i++) {
-      const o = graph.outputs[i];
-      if (outputKeys.has(o.key)) {
-        issues.push({
-          code: 'GRAPH_DUPLICATE_OUTPUT_KEY',
-          severity: 'error',
-          path: `/outputs/${i}/key`,
-          message: `duplicate output key: ${o.key}`,
-        });
-      } else {
-        outputKeys.add(o.key);
-      }
-    }
   }
 
-  private validateDefaults(graph: GraphJsonV1, issues: ValidationIssue[]) {
-    for (let i = 0; i < graph.globals.length; i++) {
-      const g = graph.globals[i];
-      if (
-        g.default !== undefined &&
-        !isValidValueForType(g.valueType, g.default)
-      ) {
-        issues.push({
-          code: 'GRAPH_INVALID_DEFAULT',
-          severity: 'error',
-          path: `/globals/${i}/default`,
-          message: `default is invalid for type ${g.valueType}`,
-        });
-      }
-    }
-
-    for (let i = 0; i < graph.entrypoints.length; i++) {
-      const ep = graph.entrypoints[i];
-      for (let j = 0; j < ep.params.length; j++) {
-        const p = ep.params[j];
-        if (
-          p.default !== undefined &&
-          !isValidValueForType(p.valueType, p.default)
-        ) {
-          issues.push({
-            code: 'GRAPH_INVALID_DEFAULT',
-            severity: 'error',
-            path: `/entrypoints/${i}/params/${j}/default`,
-            message: `default is invalid for type ${p.valueType}`,
-          });
-        }
-      }
-    }
-
+  private validateDefaults(graph: GraphJsonV2, issues: ValidationIssue[]) {
     for (let i = 0; i < graph.locals.length; i++) {
       const l = graph.locals[i];
       if (
@@ -241,7 +144,7 @@ export class GraphValidatorService {
   }
 
   private buildNodeIndex(
-    graph: GraphJsonV1,
+    graph: GraphJsonV2,
     issues: ValidationIssue[],
   ): Map<string, IndexedNode> {
     const map = new Map<string, IndexedNode>();
@@ -249,7 +152,7 @@ export class GraphValidatorService {
     for (let i = 0; i < graph.nodes.length; i++) {
       const node = graph.nodes[i];
 
-      const nodeDef = this.nodeCatalogService.getNode(node.nodeType);
+      const nodeDef = this.nodeCatalogService.getNodeDefForGraphNode(node);
       if (!nodeDef) {
         issues.push({
           code: 'GRAPH_NODE_NOT_IN_CATALOG',
@@ -285,7 +188,7 @@ export class GraphValidatorService {
   }
 
   private validateValueEdges(
-    graph: GraphJsonV1,
+    graph: GraphJsonV2,
     nodeIndex: Map<string, IndexedNode>,
     issues: ValidationIssue[],
   ): {
@@ -407,7 +310,7 @@ export class GraphValidatorService {
   }
 
   private validateExecEdges(
-    graph: GraphJsonV1,
+    graph: GraphJsonV2,
     nodeIndex: Map<string, IndexedNode>,
     issues: ValidationIssue[],
   ) {
@@ -484,28 +387,13 @@ export class GraphValidatorService {
   }
 
   private validateBuiltinReferences(
-    graph: GraphJsonV1,
+    graph: GraphJsonV2,
     nodeIndex: Map<string, IndexedNode>,
     issues: ValidationIssue[],
   ) {
-    const globalsByName = new Map<string, ValueType>();
-    for (const g of graph.globals) {
-      globalsByName.set(g.name, g.valueType);
-    }
-
     const localsByName = new Map<string, ValueType>();
     for (const l of graph.locals) {
       localsByName.set(l.name, l.valueType);
-    }
-
-    const entrypointParamTypesByName = new Map<string, Set<ValueType>>();
-    for (const ep of graph.entrypoints) {
-      for (const p of ep.params) {
-        const set =
-          entrypointParamTypesByName.get(p.name) ?? new Set<ValueType>();
-        set.add(p.valueType);
-        entrypointParamTypesByName.set(p.name, set);
-      }
     }
 
     for (const indexed of nodeIndex.values()) {
@@ -516,58 +404,6 @@ export class GraphValidatorService {
       const nodeType = indexed.node.nodeType;
       const nodeNameParam = readNameParam(indexed.node.params);
       if (!nodeNameParam) {
-        continue;
-      }
-
-      // inputs.globals.<type>
-      const globalType = parseTypedNodeValueType(nodeType, 'inputs.globals.');
-      if (globalType) {
-        const declared = globalsByName.get(nodeNameParam);
-        if (!declared) {
-          issues.push({
-            code: 'GRAPH_INPUT_GLOBAL_NOT_FOUND',
-            severity: 'error',
-            path: `/nodes/${indexed.nodeIndex}/params/name`,
-            message: `global is not declared: ${nodeNameParam}`,
-          });
-          continue;
-        }
-        if (!isAssignableValueType(declared, globalType)) {
-          issues.push({
-            code: 'GRAPH_INPUT_GLOBAL_TYPE_MISMATCH',
-            severity: 'error',
-            path: `/nodes/${indexed.nodeIndex}/params/name`,
-            message: `global type mismatch: ${declared} -> ${globalType}`,
-          });
-        }
-        continue;
-      }
-
-      // inputs.params.<type>
-      const paramType = parseTypedNodeValueType(nodeType, 'inputs.params.');
-      if (paramType) {
-        const declaredTypes = entrypointParamTypesByName.get(nodeNameParam);
-        if (!declaredTypes || declaredTypes.size === 0) {
-          issues.push({
-            code: 'GRAPH_INPUT_PARAM_NOT_FOUND',
-            severity: 'error',
-            path: `/nodes/${indexed.nodeIndex}/params/name`,
-            message: `entrypoint param is not declared: ${nodeNameParam}`,
-          });
-          continue;
-        }
-
-        const ok = [...declaredTypes].some((t) =>
-          isAssignableValueType(t, paramType),
-        );
-        if (!ok) {
-          issues.push({
-            code: 'GRAPH_INPUT_PARAM_TYPE_MISMATCH',
-            severity: 'error',
-            path: `/nodes/${indexed.nodeIndex}/params/name`,
-            message: `entrypoint param type mismatch: ${nodeNameParam}`,
-          });
-        }
         continue;
       }
 
@@ -604,212 +440,123 @@ export class GraphValidatorService {
     }
   }
 
-  private validateEntrypoints(
-    entrypoints: GraphEntrypoint[],
+  private validateStartEnd(
+    graph: GraphJsonV2,
     nodeIndex: Map<string, IndexedNode>,
     issues: ValidationIssue[],
   ) {
-    if (!entrypoints.some((e) => e.key === 'main')) {
+    // hard cut：禁止旧节点族（避免“start/end 只是占位 + 独立 inputs/outputs 节点”的旧心智模型继续存在）
+    for (let i = 0; i < graph.nodes.length; i++) {
+      const node = graph.nodes[i];
+      const t = node.nodeType;
+      if (
+        t === 'flow.return' ||
+        t.startsWith('inputs.') ||
+        t.startsWith('outputs.set.')
+      ) {
+        issues.push({
+          code: 'GRAPH_NODE_TYPE_FORBIDDEN',
+          severity: 'error',
+          path: `/nodes/${i}/nodeType`,
+          message: `nodeType is forbidden in Graph v2: ${t}`,
+        });
+      }
+    }
+
+    const startNodes = graph.nodes.filter((n) => n.nodeType === 'flow.start');
+    if (startNodes.length === 0) {
       issues.push({
-        code: 'GRAPH_ENTRYPOINT_MISSING',
+        code: 'GRAPH_START_NODE_MISSING',
         severity: 'error',
-        path: '/entrypoints',
-        message: 'missing entrypoint: main',
+        path: '/nodes',
+        message: 'missing flow.start node',
+      });
+    }
+    if (startNodes.length > 1) {
+      issues.push({
+        code: 'GRAPH_START_NODE_MULTIPLE',
+        severity: 'error',
+        path: '/nodes',
+        message: `multiple flow.start nodes: ${startNodes.map((n) => n.id).join(', ')}`,
       });
     }
 
-    for (let i = 0; i < entrypoints.length; i++) {
-      const ep = entrypoints[i];
-      const from = ep.from ?? null;
-      const to = ep.to ?? null;
+    const endNodes = graph.nodes.filter((n) => n.nodeType === 'flow.end');
+    if (endNodes.length === 0) {
+      issues.push({
+        code: 'GRAPH_END_NODE_MISSING',
+        severity: 'error',
+        path: '/nodes',
+        message: 'missing flow.end node',
+      });
+    }
+    if (endNodes.length > 1) {
+      issues.push({
+        code: 'GRAPH_END_NODE_MULTIPLE',
+        severity: 'error',
+        path: '/nodes',
+        message: `multiple flow.end nodes: ${endNodes.map((n) => n.id).join(', ')}`,
+      });
+    }
 
-      if (from) {
-        const target = nodeIndex.get(from.nodeId);
-        if (!target) {
-          issues.push({
-            code: 'GRAPH_ENTRYPOINT_INVALID',
-            severity: 'error',
-            path: `/entrypoints/${i}/from/nodeId`,
-            message: `entrypoint source node not found: ${from.nodeId}`,
-          });
-          continue;
-        }
-        if (!target.nodeDef) {
-          continue;
-        }
-
-        const hasExecInputs = (target.nodeDef.execInputs ?? []).length > 0;
+    // 验证 start/end 的 pins（唯一性/默认值/rounding）
+    if (startNodes.length === 1) {
+      const start = startNodes[0]!;
+      const indexed = nodeIndex.get(start.id);
+      if (indexed?.nodeDef && indexed.paramsOk) {
+        const hasExecInputs = (indexed.nodeDef.execInputs ?? []).length > 0;
         if (hasExecInputs) {
           issues.push({
-            code: 'GRAPH_ENTRYPOINT_INVALID',
+            code: 'GRAPH_START_NODE_INVALID',
             severity: 'error',
-            path: `/entrypoints/${i}/from`,
-            message: `entrypoint.from must point to a source node (no execInputs): ${from.nodeId}`,
+            path: `/nodes/${indexed.nodeIndex}/nodeType`,
+            message: 'flow.start must have no execInputs',
           });
         }
-
-        const ok = (target.nodeDef.execOutputs ?? []).some(
-          (p) => p.name === from.port,
+        const hasOut = (indexed.nodeDef.execOutputs ?? []).some(
+          (p) => p.name === 'out',
         );
-        if (!ok) {
+        if (!hasOut) {
           issues.push({
-            code: 'GRAPH_ENTRYPOINT_INVALID',
+            code: 'GRAPH_START_NODE_INVALID',
             severity: 'error',
-            path: `/entrypoints/${i}/from/port`,
-            message: `entrypoint source exec port not found: ${from.nodeId}.${from.port}`,
+            path: `/nodes/${indexed.nodeIndex}/nodeType`,
+            message: 'flow.start must have exec output port: out',
           });
         }
-        continue;
-      }
 
-      if (to) {
-        const target = nodeIndex.get(to.nodeId);
-        if (!target) {
-          issues.push({
-            code: 'GRAPH_ENTRYPOINT_INVALID',
-            severity: 'error',
-            path: `/entrypoints/${i}/to/nodeId`,
-            message: `entrypoint target node not found: ${to.nodeId}`,
-          });
-          continue;
-        }
-        if (!target.nodeDef) {
-          continue;
-        }
-
-        issues.push({
-          code: 'GRAPH_ENTRYPOINT_TO_DEPRECATED',
-          severity: 'warning',
-          path: `/entrypoints/${i}/to`,
-          message:
-            'entrypoint.to is deprecated; use entrypoint.from (exec output)',
+        const pins = readPinDefs(indexed.node.params?.['dynamicOutputs']);
+        validatePinList({
+          pins,
+          pointerBase: `/nodes/${indexed.nodeIndex}/params/dynamicOutputs`,
+          issues,
+          mode: 'start',
         });
+      }
+    }
 
-        const ok = (target.nodeDef.execInputs ?? []).some(
-          (p) => p.name === to.port,
+    if (endNodes.length === 1) {
+      const end = endNodes[0]!;
+      const indexed = nodeIndex.get(end.id);
+      if (indexed?.nodeDef && indexed.paramsOk) {
+        const hasIn = (indexed.nodeDef.execInputs ?? []).some(
+          (p) => p.name === 'in',
         );
-        if (!ok) {
-          // 特例：旧图可能用 flow.start.in 作为入口（现已改为无 execInputs），允许 UI 迁移。
-          const isLegacyStart =
-            target.node.nodeType === 'flow.start' && to.port === 'in';
-          if (!isLegacyStart) {
-            issues.push({
-              code: 'GRAPH_ENTRYPOINT_INVALID',
-              severity: 'error',
-              path: `/entrypoints/${i}/to/port`,
-              message: `entrypoint target exec port not found: ${to.nodeId}.${to.port}`,
-            });
-          }
-        }
-        continue;
-      }
-
-      issues.push({
-        code: 'GRAPH_ENTRYPOINT_INVALID',
-        severity: 'error',
-        path: `/entrypoints/${i}`,
-        message: 'entrypoint must have from or to',
-      });
-    }
-  }
-
-  private validateOutputs(
-    outputs: GraphOutput[],
-    nodeIndex: Map<string, IndexedNode>,
-    issues: ValidationIssue[],
-  ) {
-    const outputTypeByKey = new Map<string, ValueType>();
-    for (let i = 0; i < outputs.length; i++) {
-      const output = outputs[i];
-      outputTypeByKey.set(output.key, output.valueType);
-
-      if (output.rounding) {
-        if (output.valueType !== 'Decimal' && output.valueType !== 'Ratio') {
+        if (!hasIn) {
           issues.push({
-            code: 'GRAPH_INVALID_ROUNDING',
+            code: 'GRAPH_END_NODE_INVALID',
             severity: 'error',
-            path: `/outputs/${i}/rounding`,
-            message: 'rounding is only allowed for Decimal/Ratio outputs',
+            path: `/nodes/${indexed.nodeIndex}/nodeType`,
+            message: 'flow.end must have exec input port: in',
           });
         }
-        if (
-          !Number.isInteger(output.rounding.scale) ||
-          output.rounding.scale < 0
-        ) {
-          issues.push({
-            code: 'GRAPH_INVALID_ROUNDING',
-            severity: 'error',
-            path: `/outputs/${i}/rounding/scale`,
-            message: 'rounding.scale must be a non-negative integer',
-          });
-        }
-        if (!isRoundingMode(output.rounding.mode)) {
-          issues.push({
-            code: 'GRAPH_INVALID_ROUNDING',
-            severity: 'error',
-            path: `/outputs/${i}/rounding/mode`,
-            message: `unknown rounding mode: ${String(output.rounding.mode)}`,
-          });
-        }
-      }
-    }
 
-    const usedKeys = new Set<string>();
-
-    for (const indexed of nodeIndex.values()) {
-      if (!indexed.nodeDef || !indexed.paramsOk) {
-        continue;
-      }
-
-      const nodeType = indexed.node.nodeType;
-      const outputSetType = parseTypedNodeValueType(nodeType, 'outputs.set.');
-      if (!outputSetType) {
-        continue;
-      }
-
-      const key = readKeyParam(indexed.node.params);
-      const pointerBase = `/nodes/${indexed.nodeIndex}/params/key`;
-      if (!key) {
-        issues.push({
-          code: 'GRAPH_OUTPUT_SET_KEY_MISSING',
-          severity: 'error',
-          path: pointerBase,
-          message: `outputs.set node requires params.key: ${indexed.node.id}`,
-        });
-        continue;
-      }
-
-      usedKeys.add(key);
-
-      const declaredType = outputTypeByKey.get(key);
-      if (!declaredType) {
-        issues.push({
-          code: 'GRAPH_OUTPUT_NOT_DECLARED',
-          severity: 'error',
-          path: pointerBase,
-          message: `output is not declared: ${key}`,
-        });
-        continue;
-      }
-
-      if (declaredType !== outputSetType) {
-        issues.push({
-          code: 'GRAPH_OUTPUT_SET_TYPE_MISMATCH',
-          severity: 'error',
-          path: `/nodes/${indexed.nodeIndex}`,
-          message: `output type mismatch for ${key}: ${declaredType} -> ${outputSetType}`,
-        });
-      }
-    }
-
-    for (let i = 0; i < outputs.length; i++) {
-      const output = outputs[i];
-      if (!usedKeys.has(output.key)) {
-        issues.push({
-          code: 'GRAPH_OUTPUT_MISSING_SET_NODE',
-          severity: 'error',
-          path: `/outputs/${i}/key`,
-          message: `output is declared but never set by outputs.set.* nodes: ${output.key}`,
+        const pins = readPinDefs(indexed.node.params?.['dynamicInputs']);
+        validatePinList({
+          pins,
+          pointerBase: `/nodes/${indexed.nodeIndex}/params/dynamicInputs`,
+          issues,
+          mode: 'end',
         });
       }
     }
@@ -851,13 +598,117 @@ function readNameParam(params: unknown): string | null {
   return typeof name === 'string' && name.length > 0 ? name : null;
 }
 
-function readKeyParam(params: unknown): string | null {
-  if (params === null || typeof params !== 'object') {
-    return null;
+const PIN_NAME_REGEX = /^[A-Za-z0-9_-]+$/;
+
+function isValueType(value: unknown): value is ValueType {
+  return (
+    value === 'Decimal' ||
+    value === 'Ratio' ||
+    value === 'String' ||
+    value === 'Boolean' ||
+    value === 'DateTime' ||
+    value === 'Json'
+  );
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object') return false;
+  const proto = Object.getPrototypeOf(value) as object | null;
+  return proto === Object.prototype || proto === null;
+}
+
+function readPinDefs(value: unknown): PinDef[] {
+  if (!Array.isArray(value)) return [];
+  const pins: PinDef[] = [];
+  for (const item of value) {
+    if (!isPlainObject(item)) continue;
+    const name = item['name'];
+    const valueType = item['valueType'];
+    if (typeof name !== 'string' || name.length === 0) continue;
+    if (!isValueType(valueType)) continue;
+    pins.push(item as unknown as PinDef);
   }
-  const record = params as Record<string, unknown>;
-  const key = record['key'];
-  return typeof key === 'string' && key.length > 0 ? key : null;
+  return pins;
+}
+
+function validatePinList(params: {
+  pins: PinDef[];
+  pointerBase: string;
+  issues: ValidationIssue[];
+  mode: 'start' | 'end';
+}) {
+  const { pins, pointerBase, issues, mode } = params;
+
+  const seen = new Set<string>();
+  for (let i = 0; i < pins.length; i++) {
+    const pin = pins[i]!;
+
+    if (!PIN_NAME_REGEX.test(pin.name)) {
+      issues.push({
+        code: 'GRAPH_PIN_NAME_INVALID',
+        severity: 'error',
+        path: `${pointerBase}/${i}/name`,
+        message: `pin name must match ${PIN_NAME_REGEX.source}`,
+      });
+    }
+
+    if (seen.has(pin.name)) {
+      issues.push({
+        code: 'GRAPH_PIN_NAME_DUPLICATE',
+        severity: 'error',
+        path: `${pointerBase}/${i}/name`,
+        message: `duplicate pin name: ${pin.name}`,
+      });
+    } else {
+      seen.add(pin.name);
+    }
+
+    if (mode === 'start') {
+      if (
+        Object.prototype.hasOwnProperty.call(pin, 'defaultValue') &&
+        pin.defaultValue !== undefined &&
+        !isValidValueForType(pin.valueType, pin.defaultValue)
+      ) {
+        issues.push({
+          code: 'GRAPH_PIN_DEFAULT_INVALID',
+          severity: 'error',
+          path: `${pointerBase}/${i}/defaultValue`,
+          message: `defaultValue is invalid for type ${pin.valueType}`,
+        });
+      }
+      continue;
+    }
+
+    // mode === 'end'
+    if (pin.rounding) {
+      if (pin.valueType !== 'Decimal' && pin.valueType !== 'Ratio') {
+        issues.push({
+          code: 'GRAPH_INVALID_ROUNDING',
+          severity: 'error',
+          path: `${pointerBase}/${i}/rounding`,
+          message: 'rounding is only allowed for Decimal/Ratio outputs',
+        });
+      }
+
+      if (!Number.isInteger(pin.rounding.scale) || pin.rounding.scale < 0) {
+        issues.push({
+          code: 'GRAPH_INVALID_ROUNDING',
+          severity: 'error',
+          path: `${pointerBase}/${i}/rounding/scale`,
+          message: 'rounding.scale must be a non-negative integer',
+        });
+      }
+
+      if (!isRoundingMode(pin.rounding.mode)) {
+        issues.push({
+          code: 'GRAPH_INVALID_ROUNDING',
+          severity: 'error',
+          path: `${pointerBase}/${i}/rounding/mode`,
+          message: `unknown rounding mode: ${String(pin.rounding.mode)}`,
+        });
+      }
+    }
+  }
 }
 
 function parseTypedNodeValueType(

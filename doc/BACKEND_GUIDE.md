@@ -147,8 +147,8 @@ src/
 - 已发布 release 禁止覆盖更新；改动必须发布新 release（append-only）。
 
 ### 5.2 Inputs 校验与规范化（canonicalize）
-- 校验 `inputs` 是否满足 Definition 的 `globals + entrypoints(params)`（必填、类型、约束）。
-- 在计算 `inputsHash` 前应用 defaults（仅对 `required=false` 且缺失的项生效；规则见 `HASHING_SPEC.md`）。
+- 校验 `inputs` 是否满足 Definition 的 `flow.start` pins（必填、类型、defaultValue；规则见 `GRAPH_SCHEMA.md` / `HASHING_SPEC.md`）。
+- 在计算 `inputsHash` 前应用 defaultValue（缺失 → defaultValue → null；若 required=true 且为 null 则报错）。
 - 将 `Decimal/Ratio/DateTime` 等做规范化后再 hash（保证跨语言/跨环境一致）。
 - `inputsHash` 必须包含所有会影响输出的内容（包括 `options`）。
 

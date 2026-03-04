@@ -8,7 +8,7 @@ import { UNIT_OF_WORK, type UnitOfWorkPort } from '../ports/unit-of-work.port';
 import { RunnerExecutionError } from '../runner/runner.error';
 import { MetricsService } from '../../observability/metrics/metrics.service';
 import { GraphValidatorService } from '../validation/graph-validator.service';
-import type { GraphJsonV1 } from '../validation/graph-json.types';
+import type { GraphJsonV2 } from '../validation/graph-json.types';
 import { UseCaseError } from './use-case.error';
 import { DefinitionDependenciesService } from '../definition/definition-dependencies.service';
 
@@ -120,7 +120,7 @@ export class ExecuteJobUseCase {
             );
           }
 
-          const graph = release.content as unknown as GraphJsonV1;
+          const graph = release.content as unknown as GraphJsonV2;
           const computedDefinitionHash =
             this.hashingService.computeDefinitionHash({
               contentType: 'graph_json',
@@ -138,7 +138,6 @@ export class ExecuteJobUseCase {
           const inputsSnapshot = this.hashingService.buildInputsSnapshot(
             graph,
             command.payload.inputs,
-            command.payload.entrypointKey,
             command.payload.options,
           );
           if (!inputsSnapshot.ok) {
@@ -162,10 +161,7 @@ export class ExecuteJobUseCase {
             runnerOutputs = this.runnerPort.run({
               content: release.content,
               entrypointKey: command.payload.entrypointKey,
-              inputs: {
-                globals: inputsSnapshot.globals ?? {},
-                params: inputsSnapshot.params ?? {},
-              },
+              inputs: inputsSnapshot.inputs ?? {},
               runnerConfig: release.runnerConfig,
               options: inputsSnapshot.options ?? {},
               definitionBundle: dependencyBundle.bundle,
@@ -178,7 +174,7 @@ export class ExecuteJobUseCase {
           }
 
           const outputsSnapshot = this.hashingService.buildOutputsSnapshot(
-            graph.outputs,
+            graph,
             runnerOutputs,
           );
           if (!outputsSnapshot.ok) {

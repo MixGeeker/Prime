@@ -26,9 +26,9 @@ import type {
 import type {
   GraphEdge,
   GraphEndpoint,
-  GraphInputDef,
-  GraphJsonV1,
+  GraphJsonV2,
   GraphNode,
+  PinDef,
   RoundingMode,
 } from '../validation/graph-json.types';
 import {
@@ -82,17 +82,20 @@ export class GraphRunnerService implements RunnerPort {
   private runInternal(params: {
     content: Record<string, unknown>;
     entrypointKey?: string;
-    inputs: {
-      globals: Record<string, unknown>;
-      params: Record<string, unknown>;
-    };
+    inputs: Record<string, unknown>;
     runnerConfig?: Record<string, unknown> | null;
     options?: Record<string, unknown> | null;
     definitionBundleMap: Map<string, RunnerDefinitionBundleItem>;
     callDepth: number;
     maxCallDepth: number;
   }): RunnerRunResult {
-    const graph = params.content as unknown as GraphJsonV1;
+    const graph = params.content as unknown as GraphJsonV2;
+    if ((graph as any)?.schemaVersion !== 2) {
+      throw new RunnerExecutionError(
+        'RUNNER_DETERMINISTIC_ERROR',
+        `unsupported graph schemaVersion: ${String((graph as any)?.schemaVersion)}`,
+      );
+    }
 
     const effectiveRunnerConfig = deepMerge(
       params.runnerConfig ?? {},
@@ -101,23 +104,15 @@ export class GraphRunnerService implements RunnerPort {
     const limits = readRunnerLimits(effectiveRunnerConfig);
     const DecimalCtor = buildDecimalCtor(effectiveRunnerConfig);
 
-    const entrypointKey =
-      typeof params.entrypointKey === 'string' &&
-      params.entrypointKey.length > 0
-        ? params.entrypointKey
-        : 'main';
-    const entrypoint = graph.entrypoints.find((ep) => ep.key === entrypointKey);
-    if (!entrypoint) {
+    if (!isPlainObject(params.inputs)) {
       throw new RunnerExecutionError(
         'RUNNER_DETERMINISTIC_ERROR',
-        `entrypoint not found: ${entrypointKey}`,
+        'inputs must be an object',
       );
     }
 
     const runtimeInputs = canonicalizeRuntimeInputsOrThrow({
-      graph,
-      entrypointParams: entrypoint.params ?? [],
-      entrypointKey,
+      pins: readPinDefs((graph.nodes.find((n) => n.nodeType === 'flow.start')?.params as any)?.dynamicOutputs),
       inputs: params.inputs,
     });
 
@@ -184,16 +179,13 @@ export class GraphRunnerService implements RunnerPort {
 
     const pureOutputsCacheByNodeId = new Map<string, Record<string, unknown>>();
     const impureOutputsByNodeId = new Map<string, Record<string, unknown>>();
-
-    const declaredOutputKeys = new Set<string>();
-    for (const o of graph.outputs ?? []) {
-      declaredOutputKeys.add(o.key);
-    }
-    const outputValuesByKey = new Map<string, unknown>();
+    let finalOutputs: Record<string, unknown> | null = null;
 
     const runtime: RunnerRuntimeContext = {
-      globals: runtimeInputs.globals,
-      params: runtimeInputs.params,
+      inputs: runtimeInputs,
+      // 兼容：旧节点族仍可能读取 globals/params；Graph v2 下两者指向同一个 inputs。
+      globals: runtimeInputs,
+      params: runtimeInputs,
       getLocal: (name) => {
         if (!localsByName.has(name)) {
           throw new RunnerExecutionError(
@@ -213,14 +205,11 @@ export class GraphRunnerService implements RunnerPort {
         localsByName.set(name, value);
         pureOutputsCacheByNodeId.clear();
       },
-      setOutput: ({ key, value, nodeId }) => {
-        if (!declaredOutputKeys.has(key)) {
-          throw new RunnerExecutionError(
-            'RUNNER_DETERMINISTIC_ERROR',
-            `output is not declared: ${key} (at ${nodeId})`,
-          );
-        }
-        outputValuesByKey.set(key, value);
+      setOutput: ({ key, nodeId }) => {
+        throw new RunnerExecutionError(
+          'RUNNER_DETERMINISTIC_ERROR',
+          `setOutput is not supported in Graph v2: ${key} (at ${nodeId})`,
+        );
       },
       callDefinition: (call) => {
         if (params.callDepth + 1 > params.maxCallDepth) {
@@ -253,91 +242,51 @@ export class GraphRunnerService implements RunnerPort {
     };
 
     const execStack: GraphEndpoint[] = [];
-    const entryFrom = entrypoint.from;
-    const entryTo = entrypoint.to;
-
-    if (entryFrom) {
-      const startNode = nodeById.get(entryFrom.nodeId);
-      if (!startNode) {
-        throw new RunnerExecutionError(
-          'RUNNER_DETERMINISTIC_ERROR',
-          `entrypoint.from node not found: ${entryFrom.nodeId}`,
-        );
-      }
-
-      const startDef = this.nodeCatalogService.getNode(startNode.nodeType);
-      if (!startDef) {
-        throw new RunnerExecutionError(
-          'RUNNER_DETERMINISTIC_ERROR',
-          `entrypoint.from node is not in catalog: ${startNode.nodeType}`,
-        );
-      }
-
-      if ((startDef.execInputs ?? []).length > 0) {
-        throw new RunnerExecutionError(
-          'RUNNER_DETERMINISTIC_ERROR',
-          `entrypoint.from must point to a source node (no execInputs): ${startNode.id}`,
-        );
-      }
-
-      const ok = (startDef.execOutputs ?? []).some(
-        (p) => p.name === entryFrom.port,
-      );
-      if (!ok) {
-        throw new RunnerExecutionError(
-          'RUNNER_DETERMINISTIC_ERROR',
-          `entrypoint.from exec output port not found: ${entryFrom.nodeId}.${entryFrom.port}`,
-        );
-      }
-
-      const firstEdge = execEdgeByFromPort.get(
-        `${entryFrom.nodeId}::${entryFrom.port}`,
-      );
-      if (firstEdge) {
-        execStack.push(firstEdge.to);
-      }
-    } else if (entryTo) {
-      // 兼容旧结构：entrypoint.to 指向 exec 输入端口开始执行
-      const startNode = nodeById.get(entryTo.nodeId);
-      if (!startNode) {
-        throw new RunnerExecutionError(
-          'RUNNER_DETERMINISTIC_ERROR',
-          `entrypoint.to node not found: ${entryTo.nodeId}`,
-        );
-      }
-
-      const startDef = this.nodeCatalogService.getNode(startNode.nodeType);
-      if (!startDef) {
-        throw new RunnerExecutionError(
-          'RUNNER_DETERMINISTIC_ERROR',
-          `entrypoint.to node is not in catalog: ${startNode.nodeType}`,
-        );
-      }
-
-      const ok = (startDef.execInputs ?? []).some(
-        (p) => p.name === entryTo.port,
-      );
-      if (ok) {
-        execStack.push(entryTo);
-      } else {
-        // 特例：旧图可能以 flow.start.in 作为入口（现已改为无 execInputs）。
-        if (startNode.nodeType === 'flow.start' && entryTo.port === 'in') {
-          const firstEdge = execEdgeByFromPort.get(`${startNode.id}::out`);
-          if (firstEdge) {
-            execStack.push(firstEdge.to);
-          }
-        } else {
-          throw new RunnerExecutionError(
-            'RUNNER_DETERMINISTIC_ERROR',
-            `entrypoint.to exec input port not found: ${entryTo.nodeId}.${entryTo.port}`,
-          );
-        }
-      }
-    } else {
+    const startNodes = graph.nodes.filter((n) => n.nodeType === 'flow.start');
+    if (startNodes.length !== 1) {
       throw new RunnerExecutionError(
         'RUNNER_DETERMINISTIC_ERROR',
-        `entrypoint must have from or to: ${entrypoint.key}`,
+        `graph must contain exactly 1 flow.start node, got ${startNodes.length}`,
       );
+    }
+    const startNode = startNodes[0]!;
+
+    const endNodes = graph.nodes.filter((n) => n.nodeType === 'flow.end');
+    if (endNodes.length !== 1) {
+      throw new RunnerExecutionError(
+        'RUNNER_DETERMINISTIC_ERROR',
+        `graph must contain exactly 1 flow.end node, got ${endNodes.length}`,
+      );
+    }
+    const endNodeId = endNodes[0]!.id;
+
+    // 预先计算 start 的 value outputs（start 为 impure 节点，但没有 execInputs，不会被 while-loop 执行）
+    const startDef = this.nodeCatalogService.getNodeDefForGraphNode(startNode);
+    if (!startDef) {
+      throw new RunnerExecutionError(
+        'RUNNER_DETERMINISTIC_ERROR',
+        `flow.start node is not in catalog: ${startNode.nodeType}`,
+      );
+    }
+    const startImpl = getNodeImplementationV1(startNode.nodeType);
+    if (!startImpl) {
+      throw new RunnerExecutionError(
+        'RUNNER_DETERMINISTIC_ERROR',
+        `unsupported node type: ${startNode.nodeType}`,
+      );
+    }
+    const startValueOutputs = startImpl.evaluate({
+      node: startNode,
+      def: startDef,
+      inputs: {},
+      runtime,
+      DecimalCtor,
+    });
+    impureOutputsByNodeId.set(startNode.id, startValueOutputs);
+
+    const firstEdge = execEdgeByFromPort.get(`${startNode.id}::out`);
+    if (firstEdge) {
+      execStack.push(firstEdge.to);
     }
     let steps = 0;
 
@@ -363,7 +312,7 @@ export class GraphRunnerService implements RunnerPort {
         );
       }
 
-      const nodeDef = this.nodeCatalogService.getNode(node.nodeType);
+      const nodeDef = this.nodeCatalogService.getNodeDefForGraphNode(node);
       if (!nodeDef) {
         throw new RunnerExecutionError(
           'RUNNER_DETERMINISTIC_ERROR',
@@ -399,6 +348,14 @@ export class GraphRunnerService implements RunnerPort {
         runtime,
         DecimalCtor,
       });
+
+      if (node.id === endNodeId) {
+        finalOutputs = buildOutputsFromEndNode({
+          node,
+          inputValues,
+          DecimalCtor,
+        });
+      }
 
       const valueOutputs = impl.evaluate({
         node,
@@ -461,32 +418,14 @@ export class GraphRunnerService implements RunnerPort {
       }
     }
 
-    const outputs: Record<string, unknown> = {};
-    for (const output of graph.outputs) {
-      ensureTimeout(startedAt, limits.timeoutMs);
-
-      if (!outputValuesByKey.has(output.key)) {
-        throw new RunnerExecutionError(
-          'RUNNER_DETERMINISTIC_ERROR',
-          `missing output value (not set by outputs.set.*): ${output.key}`,
-        );
-      }
-
-      const value = outputValuesByKey.get(output.key);
-      const outputValue = output.rounding
-        ? applyOutputRounding(
-            value,
-            output.valueType,
-            output.rounding.scale,
-            output.rounding.mode,
-            DecimalCtor,
-          )
-        : value;
-
-      outputs[output.key] = outputValue;
+    if (!finalOutputs) {
+      throw new RunnerExecutionError(
+        'RUNNER_DETERMINISTIC_ERROR',
+        'flow.end is not reached; outputs are not produced',
+      );
     }
 
-    return { outputs };
+    return { outputs: finalOutputs };
   }
 
   private buildInputValues(params: {
@@ -580,7 +519,7 @@ export class GraphRunnerService implements RunnerPort {
       );
     }
 
-    const nodeDef = this.nodeCatalogService.getNode(node.nodeType);
+    const nodeDef = this.nodeCatalogService.getNodeDefForGraphNode(node);
     if (!nodeDef) {
       throw new RunnerExecutionError(
         'RUNNER_DETERMINISTIC_ERROR',
@@ -685,13 +624,39 @@ function applyOutputRounding(
   return canonicalized.value;
 }
 
+function buildOutputsFromEndNode(params: {
+  node: GraphNode;
+  inputValues: Record<string, unknown>;
+  DecimalCtor: typeof Decimal;
+}): Record<string, unknown> {
+  const pins = readPinDefs((params.node.params as any)?.dynamicInputs);
+  const outputs: Record<string, unknown> = {};
+
+  for (const pin of pins) {
+    const raw = params.inputValues[pin.name];
+    const value =
+      pin.rounding && pin.rounding.mode && pin.rounding.scale !== undefined
+        ? applyOutputRounding(
+            raw,
+            pin.valueType,
+            pin.rounding.scale,
+            pin.rounding.mode,
+            params.DecimalCtor,
+          )
+        : raw;
+    outputs[pin.name] = value;
+  }
+
+  return outputs;
+}
+
 function ensureTimeout(startedAt: number, timeoutMs: number) {
   if (Date.now() - startedAt > timeoutMs) {
     throw new RunnerExecutionError('RUNNER_TIMEOUT', 'runner timeout exceeded');
   }
 }
 
-function topologicalSortWithDepth(graph: GraphJsonV1): {
+function topologicalSortWithDepth(graph: GraphJsonV2): {
   maxDepth: number;
 } {
   const indegree = new Map<string, number>();
@@ -824,78 +789,71 @@ function deepMerge(
 }
 
 function canonicalizeRuntimeInputsOrThrow(params: {
-  graph: GraphJsonV1;
-  entrypointKey: string;
-  entrypointParams: GraphInputDef[];
-  inputs: {
-    globals: Record<string, unknown>;
-    params: Record<string, unknown>;
-  };
-}): { globals: Record<string, unknown>; params: Record<string, unknown> } {
-  if (!isPlainObject(params.inputs.globals)) {
-    throw new RunnerExecutionError(
-      'RUNNER_DETERMINISTIC_ERROR',
-      'inputs.globals must be an object',
-    );
-  }
-  if (!isPlainObject(params.inputs.params)) {
-    throw new RunnerExecutionError(
-      'RUNNER_DETERMINISTIC_ERROR',
-      'inputs.params must be an object',
-    );
-  }
+  pins: PinDef[];
+  inputs: Record<string, unknown>;
+}): Record<string, unknown> {
+  const { pins, inputs } = params;
 
-  // 允许额外字段：先浅拷贝原始 inputs，再覆盖声明字段的规范化值。
-  const globals: Record<string, unknown> = { ...params.inputs.globals };
-  const entryParams: Record<string, unknown> = { ...params.inputs.params };
+  const result: Record<string, unknown> = {};
+  for (const pin of pins) {
+    const required = pin.required ?? true;
+    const hasValue = Object.prototype.hasOwnProperty.call(inputs, pin.name);
+    const raw = hasValue ? inputs[pin.name] : undefined;
 
-  canonicalizeInputDefListOrThrow({
-    defs: params.graph.globals ?? [],
-    target: globals,
-    scope: 'globals',
-  });
-  canonicalizeInputDefListOrThrow({
-    defs: params.entrypointParams ?? [],
-    target: entryParams,
-    scope: `params(${params.entrypointKey})`,
-  });
-
-  return { globals, params: entryParams };
-}
-
-function canonicalizeInputDefListOrThrow(params: {
-  defs: GraphInputDef[];
-  target: Record<string, unknown>;
-  scope: string;
-}) {
-  for (const def of params.defs) {
-    const hasOwn = Object.hasOwn(params.target, def.name);
-    const raw = hasOwn ? params.target[def.name] : undefined;
-
-    let value: unknown = raw;
-    if (value === undefined) {
-      if (def.default !== undefined) {
-        value = def.default;
-        params.target[def.name] = value;
-      } else if (def.required) {
-        throw new RunnerExecutionError(
-          'RUNNER_DETERMINISTIC_ERROR',
-          `missing required input: ${params.scope}.${def.name}`,
-        );
+    let effective: unknown = raw;
+    if (effective === undefined) {
+      if (Object.prototype.hasOwnProperty.call(pin, 'defaultValue')) {
+        effective = pin.defaultValue;
       } else {
-        continue;
+        effective = null;
       }
     }
 
-    const canonicalized = canonicalizeValueByType(def.valueType, value);
+    if (effective === null) {
+      if (required) {
+        throw new RunnerExecutionError(
+          'RUNNER_DETERMINISTIC_ERROR',
+          `missing required input: inputs.${pin.name}`,
+        );
+      }
+      result[pin.name] = null;
+      continue;
+    }
+
+    const canonicalized = canonicalizeValueByType(pin.valueType, effective);
     if (!canonicalized.ok) {
       throw new RunnerExecutionError(
         'RUNNER_DETERMINISTIC_ERROR',
-        `invalid input for ${params.scope}.${def.name} (${def.valueType}): ${canonicalized.message}`,
+        `invalid input for inputs.${pin.name} (${pin.valueType}): ${canonicalized.message}`,
       );
     }
-    params.target[def.name] = canonicalized.value;
+    result[pin.name] = canonicalized.value;
   }
+
+  return result;
+}
+
+function readPinDefs(value: unknown): PinDef[] {
+  if (!Array.isArray(value)) return [];
+  const pins: PinDef[] = [];
+  for (const item of value) {
+    if (!isPlainObject(item)) continue;
+    const name = item['name'];
+    const valueType = item['valueType'];
+    if (typeof name !== 'string' || name.length === 0) continue;
+    if (
+      valueType !== 'Decimal' &&
+      valueType !== 'Ratio' &&
+      valueType !== 'String' &&
+      valueType !== 'Boolean' &&
+      valueType !== 'DateTime' &&
+      valueType !== 'Json'
+    ) {
+      continue;
+    }
+    pins.push(item as unknown as PinDef);
+  }
+  return pins;
 }
 
 function buildDecimalCtor(config: Record<string, unknown>): typeof Decimal {

@@ -63,9 +63,9 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import type { GraphJsonV1, GraphLocalDef, ValueType } from '@/engine/types';
+import type { GraphJsonV2, GraphLocalDef, ValueType } from '@/engine/types';
 
-const props = defineProps<{ graph: GraphJsonV1 }>();
+const props = defineProps<{ graph: GraphJsonV2 }>();
 const emit = defineEmits<{ (e: 'dirty'): void }>();
 
 const valueTypes: ValueType[] = ['Decimal', 'Ratio', 'String', 'Boolean', 'DateTime', 'Json'];

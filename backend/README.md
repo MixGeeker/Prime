@@ -141,7 +141,7 @@ Editor 只需要对接 HTTP Admin API + Node Catalog：
 
 - 幂等键：`jobId`（必须全局唯一；重试必须复用同一个 jobId）
 - Definition 引用：必须传 `{ definitionId, definitionHash }`（不使用数字 version）
-- inputs：允许携带多余字段，但引擎只读取声明在图里的 `inputs.globals/inputs.params`
+- inputs：单一 object；允许携带多余字段，但引擎只读取声明在 `flow.start` pins 里的 `inputs.<pin>`
 - options：仅用于执行覆盖（会进入 `inputsHash`），见 `../doc/API_DESIGN.md`
 
 ### 3) 下游结果消费（事件）对接

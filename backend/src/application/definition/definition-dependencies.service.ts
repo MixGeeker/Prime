@@ -9,7 +9,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { ValueType } from '../catalog/node-catalog.types';
 import type { DefinitionRelease } from '../../domain/definition/definition';
-import type { GraphJsonV1 } from '../validation/graph-json.types';
+import type { GraphJsonV2, PinDef } from '../validation/graph-json.types';
 import type { ValidationIssue } from '../validation/validation-issue';
 import { UseCaseError } from '../use-cases/use-case.error';
 import {
@@ -62,7 +62,7 @@ export class DefinitionDependenciesService {
     rootContent: Record<string, unknown>;
     rootRef?: { definitionId: string; definitionHash: string };
   }): Promise<{ bundle: RunnerDefinitionBundleItem[] }> {
-    const rootGraph = params.rootContent as unknown as GraphJsonV1;
+    const rootGraph = params.rootContent as unknown as GraphJsonV2;
     const rootKey = params.rootRef
       ? `${params.rootRef.definitionId}@${params.rootRef.definitionHash}`
       : null;
@@ -118,11 +118,15 @@ export class DefinitionDependenciesService {
 
     const validateExposeOutputs = (
       callNode: CallNodeRef,
-      calleeGraph: GraphJsonV1,
+      calleeGraph: GraphJsonV2,
     ): ValidationIssue[] => {
       const outputTypeByKey = new Map<string, ValueType>();
-      for (const output of calleeGraph.outputs ?? []) {
-        outputTypeByKey.set(output.key, output.valueType);
+      const endNodes = calleeGraph.nodes.filter((n) => n.nodeType === 'flow.end');
+      if (endNodes.length === 1) {
+        const pins = readPinDefs((endNodes[0]!.params as any)?.dynamicInputs);
+        for (const pin of pins) {
+          outputTypeByKey.set(pin.name, pin.valueType);
+        }
       }
 
       const issues: ValidationIssue[] = [];
@@ -195,7 +199,7 @@ export class DefinitionDependenciesService {
         definitionHash,
         context,
       );
-      const graph = release.content as unknown as GraphJsonV1;
+      const graph = release.content as unknown as GraphJsonV2;
 
       for (const callNode of collectCallDefinitionNodes(graph)) {
         const callee = await loadReleaseOrThrow(
@@ -209,7 +213,7 @@ export class DefinitionDependenciesService {
 
         const issues = validateExposeOutputs(
           callNode,
-          callee.content as unknown as GraphJsonV1,
+          callee.content as unknown as GraphJsonV2,
         );
         if (issues.length > 0) {
           throw new UseCaseError(
@@ -259,7 +263,7 @@ export class DefinitionDependenciesService {
       );
       const issues = validateExposeOutputs(
         callNode,
-        callee.content as unknown as GraphJsonV1,
+        callee.content as unknown as GraphJsonV2,
       );
       if (issues.length > 0) {
         throw new UseCaseError(
@@ -297,7 +301,7 @@ export class DefinitionDependenciesService {
   }
 }
 
-function collectCallDefinitionNodes(graph: GraphJsonV1): CallNodeRef[] {
+function collectCallDefinitionNodes(graph: GraphJsonV2): CallNodeRef[] {
   const result: CallNodeRef[] = [];
 
   for (let i = 0; i < (graph.nodes ?? []).length; i++) {
@@ -347,4 +351,27 @@ function collectCallDefinitionNodes(graph: GraphJsonV1): CallNodeRef[] {
   }
 
   return result;
+}
+
+function readPinDefs(value: unknown): PinDef[] {
+  if (!Array.isArray(value)) return [];
+  const pins: PinDef[] = [];
+  for (const item of value) {
+    if (!isPlainObject(item)) continue;
+    const name = item['name'];
+    const valueType = item['valueType'];
+    if (typeof name !== 'string' || name.length === 0) continue;
+    if (
+      valueType !== 'Decimal' &&
+      valueType !== 'Ratio' &&
+      valueType !== 'String' &&
+      valueType !== 'Boolean' &&
+      valueType !== 'DateTime' &&
+      valueType !== 'Json'
+    ) {
+      continue;
+    }
+    pins.push(item as unknown as PinDef);
+  }
+  return pins;
 }

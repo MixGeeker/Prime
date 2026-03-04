@@ -46,7 +46,7 @@
 
 ### 调用方（任意业务服务/适配器）
 - 决定用哪个 Definition Release（显式传 `definitionId+definitionHash`；或上层自行做“策略/配置”）。
-- 通过 Inputs Provider 组装输入 `inputs`（`inputs.globals` + `inputs.params`；允许携带多余字段但引擎默认忽略）并发送 `compute.job.requested.v1`。
+- 通过 Inputs Provider 组装输入 `inputs`（单一 object；key 由图的 `flow.start` pins 定义；允许携带多余字段但引擎默认忽略）并发送 `compute.job.requested.v1`。
 - 消费结果事件，更新自己的读模型/缓存/报表等（需要的话可转发为业务事件）。
 
 ### Compute Inputs Provider（由集成方实现）
@@ -56,10 +56,10 @@
 
 Inputs Provider 典型职责：
 - **聚合 facts**：从货币模块/公司模块/库存模块等拉取需要的事实数据（可以是 DB 直读、HTTP/gRPC、或订阅事件构建本地缓存）。
-- **对齐引擎输入契约**：把“会影响计算结果”的字段写入 `inputs.globals` 与 `inputs.params`（对应 BlueprintGraph 的 `globals/entrypoints[key].params` 声明）。
+- **对齐引擎输入契约**：把“会影响计算结果”的字段写入 `inputs.<pin>`（对应蓝图 `flow.start` 的输入 pins 声明）。
   - 允许携带多余字段（如 `inputs._meta/inputs.facts/inputs.resolved`），但引擎默认不会读取，也不会把未声明字段纳入 `inputsHash`。
 - **解析与规范化**：Decimal（字符串）规范化（必要时包含 Ratio/DateTime），避免调用方各自实现导致口径漂移；币种/方向等领域语义由集成方自行管理。
-- **可追溯**：把关键来源信息（如汇率时间点、rateId、公司配置 revision 等）作为声明过的 `globals/params` 注入（可用一个 `Json` 字段聚合，例如 `globals.meta`），确保进入 `inputsHash`。
+- **可追溯**：把关键来源信息（如汇率时间点、rateId、公司配置 revision 等）作为声明过的 start pins 注入（可用一个 `Json` pin 聚合，例如 `inputs.meta`），确保进入 `inputsHash`。
   - `inputs._meta` 可以保留为审计/排障字段，但默认不进入 `inputsHash`。
 
 实现形态建议（MVP 选最轻的）：
@@ -79,7 +79,7 @@ Inputs Provider 典型职责：
 1. 调用方通过 Inputs Provider 构造 `inputs`，并发送命令：`compute.job.requested.v1`（指定 `definitionId+definitionHash`）。
 2. 引擎：
    - 幂等：按 `jobId` 去重（`jobId` 是平台级唯一键）。
-   - 读取 Definition Release → 校验 inputs 符合 `globals + entrypoint.params` 契约 → 生成 inputsSnapshot（应用 default）→ Canonicalize → 计算 `inputsHash` → Runner 执行（控制流 + 表达式）→ 生成 `outputs` 与 `outputsHash`。
+   - 读取 Definition Release → 校验 inputs 符合 `flow.start` pins 契约 → 生成 inputsSnapshot（应用 defaultValue）→ Canonicalize → 计算 `inputsHash` → Runner 执行（控制流 + 表达式）→ 生成 `outputs` 与 `outputsHash`。
    - 事务内写 `job`（建议作为必选，用于幂等/追溯）+ 写 `outbox`（PENDING）。
 3. Outbox dispatcher：
    - 拉取 PENDING/FAILED，`SKIP LOCKED` 抢锁。
@@ -171,12 +171,12 @@ Inputs Provider 典型职责：
 > 引擎只把 Definition 当“数据”，但为了可维护性与安全性，仍需要在“发布前”做静态校验与约束。
 
 ### Graph JSON（示意）
-- `globals/entrypoints.params`：输入契约（强类型、是否必填、默认值、约束、说明）。
+- `flow.start` pins（`params.dynamicOutputs`）：输入契约（强类型、是否必填、defaultValue、约束、说明）。
 - `locals`：图内局部变量声明（可变状态；用于循环/状态机）。
 - `resolvers?`：可选的“输入物化（materialization）”声明（由 Inputs Provider 执行，例如 HTTP 拉取/格式转换）；Compute Engine 本身不执行任何 IO。
 - `nodes/edges`：表达式节点与 value 连线（value 层必须 DAG）。
 - `execEdges`：控制流连线（允许环；用于 loop）。
-- `outputs`：输出声明（`key`、类型、舍入/精度）。
+- `flow.end` pins（`params.dynamicInputs`）：输出契约（key、类型、rounding）。
 - `metadata?`：纯展示/审计用途（如节点坐标、分组、说明等），不参与执行语义与 `definitionHash`。
 
 > `runnerConfig` 是 Release 的独立字段（不放在 graph content 里），见 `API_DESIGN.md` / `GRAPH_SCHEMA.md` / `HASHING_SPEC.md`。
@@ -186,14 +186,14 @@ Inputs Provider 典型职责：
 
 推荐的注入顺序（以“调用方注入”为主）：
 1. **Gather Facts**：Inputs Provider 从各业务模块拉取/读取所需 facts（如汇率、公司配置、对象事实等）。
-2. **Build Inputs**：构造 job payload 的 `inputs.globals` 与 `inputs.params`（允许携带额外字段，但引擎默认忽略未声明字段）。
-3. **Resolvers（可选）**：如必须走 HTTP/外部 API，Inputs Provider 在发送 job 前完成，并把会影响计算的结果写入声明字段（`inputs.globals/inputs.params`；可用 `Json` 聚合）。
-4. **Meta（强烈建议）**：把关键来源信息也写入声明字段（例如 `globals.meta: Json` 或拆成多个强类型字段），确保进入 `inputsHash`；`inputs._meta` 可作为审计字段保留。
-5. **Compute Engine 侧 Defaults + Canonicalize + Hash**：引擎按 `globals + entrypoint.params` 应用默认值生成 inputsSnapshot，再对其做规范化（Decimal/Ratio/DateTime 等）并计算 `inputsHash`，然后执行 Runner。
+2. **Build Inputs**：构造 job payload 的 `inputs`（单一 object；允许携带额外字段，但引擎默认忽略未声明字段）。
+3. **Resolvers（可选）**：如必须走 HTTP/外部 API，Inputs Provider 在发送 job 前完成，并把会影响计算的结果写入声明字段（即 `flow.start` pins 对应的 `inputs.<pin>`；可用 `Json` 聚合）。
+4. **Meta（强烈建议）**：把关键来源信息也写入声明字段（例如声明一个 `inputs.meta: Json` pin 或拆成多个强类型 pins），确保进入 `inputsHash`；`inputs._meta` 可作为审计字段保留。
+5. **Compute Engine 侧 Defaults + Canonicalize + Hash**：引擎按 `flow.start` pins 应用 defaultValue 生成 inputsSnapshot，再对其做规范化（Decimal/Ratio/DateTime 等）并计算 `inputsHash`，然后执行 Runner。
 
 关键约束：
 - **Runner 只读 `canonicalizedInputs`**，不允许访问进程环境、当前时间、外部服务。
-- **任何可能影响结果的值**必须通过声明的 `globals/params` 注入，从而进入 `inputsHash` 并可在 Job 中回放；未声明字段允许存在但默认不可读、也不进入 `inputsHash`。
+- **任何可能影响结果的值**必须通过声明的 start pins 注入，从而进入 `inputsHash` 并可在 Job 中回放；未声明字段允许存在但默认不可读、也不进入 `inputsHash`。
 
 ### 全局变量（来自业务模块的 Facts）怎么让所有图访问
 先澄清：汇率、公司名称/配置等属于业务模块的数据；Compute Engine 不应该把自己变成这些数据的“权威来源”。你想要“所有图都能访问”，本质是需要一个**统一的注入入口与命名空间**，而不是让引擎在运行时到处拉取。
@@ -201,7 +201,7 @@ Inputs Provider 典型职责：
 推荐两种方式（都算“注入”，只是注入发生的位置不同）：
 
 **A) 调用方注入（最简单、最解耦）**
-- 调用方（或一个共享 SDK）从货币模块/公司模块读取 facts，把值放进 job 的 `inputs`（例如 `inputs.globals.fx_rates`、`inputs.globals.company`）。
+- 调用方（或一个共享 SDK）从货币模块/公司模块读取 facts，把值放进 job 的 `inputs`（例如 `inputs.fx_rates`、`inputs.company`）。
 - 优点：Compute Engine 更纯（除 Definition/Job/outbox 外不需要额外 facts 存储）；Job 的 `inputsHash` 天然就绑定了“当时用了哪些值”，便于追溯/回放。
 - 缺点：每个调用方都要做一遍拼装（通常用 SDK/网关解决）；job 消息会更大。
 
@@ -227,7 +227,7 @@ MVP 约束建议：
 ### Runner 约束（MVP）
 - 纯函数：不得访问 DB/HTTP；所有输入从 `canonicalizedInputs` 注入。
 - 节点白名单（MVP，建议分组）：
-  - 基础：Const、Inputs（globals/params）、Flow、Locals（get/set）
+  - 基础：Const、Inputs（flow.start pins）、Flow、Locals（get/set）
   - 数值：Add/Sub/Mul/Div、Min/Max、Clamp、Abs
   - 逻辑：Compare、If、And/Or/Not
   - 舍入：Round（建议支持 mode/scale，且计入 `definitionHash` 或 `inputsHash`）
@@ -243,11 +243,11 @@ MVP 约束建议：
 ### 定位
 - 由集成方/业务方实现与维护，用于创建与发布 Definition（draft → release(published) → deprecated）。
 - Compute Engine 提供“后端标准与能力”（Node Catalog / Definition Admin API / validate / dry-run），Editor 只需要对接这些能力即可。
-- Editor 不负责 facts 获取；输入的“来源与解析”由 Inputs Provider（或调用方）实现，Editor 只面向“输入契约（globals/entrypoints.params）”与图结构。
+- Editor 不负责 facts 获取；输入的“来源与解析”由 Inputs Provider（或调用方）实现，Editor 只面向“输入/输出契约（flow.start/flow.end pins）”与图结构。
 
 ### 核心能力（建议 MVP）
 - **节点与连线编辑**：基于 Node Catalog 的节点库，拖拽建图；支持 value 连线与 exec 连线；连线时做类型校验。
-- **输入契约编辑**：编辑 `globals` 与 `entrypoints.params`（强类型、default、约束）；调用方触发时把值放进 `inputs.globals/inputs.params`。
+- **输入/输出契约编辑**：编辑 `flow.start/flow.end` 的动态 pins（强类型、required/defaultValue/rounding）；调用方触发时把值放进 `inputs.<pin>`。
 - **静态校验**：value 层 DAG/拓扑、必填输入、类型/范围/约束匹配、白名单节点、输出声明完整性；exec 层只校验端口合法性（允许 loop）。
 - **预览（Preview）**：用样例 `inputs` 在本地 runner（或引擎 dry-run）计算 outputs；预览只接受 inputs，不触发任何外部 IO。
 - **发布物与审计**：changelog、diff、回滚到旧 release（按 definitionHash）、弃用（deprecated）。
@@ -265,7 +265,7 @@ MVP 约束建议：
 
 ### Inputs Catalog（输入目录，可选）
 - 由 Inputs Provider（集成方）提供一份“输入目录”（names + types + docs + 示例），供编辑器做选择/提示/校验。
-- 引擎在运行时只验证 job payload 的 `inputs.globals/inputs.params` 是否满足 Definition 的 `globals/entrypoints.params`；未声明字段允许存在但默认不可读、也不进入 `inputsHash`。
+- 引擎在运行时只验证 job payload 的 `inputs` 是否满足 Definition 的 `flow.start` pins；未声明字段允许存在但默认不可读、也不进入 `inputsHash`。
 
 ### 技术实现建议
 - 前端可选：Rete.js / React Flow / 自研画布；优先选生态成熟、可维护的方案。
@@ -325,6 +325,6 @@ MVP 约束建议：
 1. Runner Core + Node Catalog（白名单节点 + 类型/约束 + decimal 精度与舍入）。
 2. Compute Engine 服务骨架（DB：Definition draft/publish → Release（definitionHash））。
 3. RabbitMQ Job 链路（consumer + publisher confirm + Outbox/Inbox + `job.succeeded/failed`）。
-4. Inputs Provider 规范与参考实现（`inputs.globals/inputs.params` 约定 + canonicalize 规则 + 多余字段策略）。
+4. Inputs Provider 规范与参考实现（Graph v2：单一 `inputs` object + start pins 契约 + canonicalize 规则 + 多余字段策略）。
 5. Editor 后端标准（Definition Admin API + validate + dry-run + OpenAPI/Schema），供集成方自定义 UI。
 6. 一个业务集成样板：Provider 注入 `inputs` → 发 `job.requested` → 收结果事件并落读模型（含 Inbox 幂等）。

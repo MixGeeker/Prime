@@ -110,8 +110,8 @@
 **任务**
 - [x] typed canonicalize（Decimal/Ratio/DateTime）
 - [x] JCS（RFC 8785）序列化（已用 npm 包 `canonicalize` 落地）
-- [x] `definitionHash`：发布时计算；裁剪 `content.metadata/resolvers`；稳定排序（globals/entrypoints/locals/nodes/edges/execEdges/outputs）
-- [x] `inputsHash`：覆盖 `entrypointKey + globals + params + job.options`；缺失时应用 default→null；忽略未声明的 inputs 字段
+- [x] `definitionHash`：发布时计算；裁剪 `content.metadata/resolvers`；稳定排序（schemaVersion/locals/nodes/edges/execEdges + start/end pins 归一化）
+- [x] `inputsHash`：覆盖 `flow.start` pins + job.options；缺失时应用 defaultValue→null；忽略未声明的 inputs 字段
 - [x] `outputsHash`：只在成功时计算；失败不产生 outputsHash
 - [x] golden cases：至少覆盖（脚本：`backend` 下 `npm run test:hashing`）
   - 同语义不同顺序 → hash 相同（definitionHash）
@@ -161,7 +161,7 @@
 **任务**
 - [x] RunnerPort（domain/application 只依赖 port）
 - [x] 节点执行（按 Node Catalog 白名单），包含最小节点集合：
-  - [x] `inputs.globals.*`、`inputs.params.*`、`core.const.*`（按 valueType 拆分）
+  - [x] I/O（Graph v2）：`flow.start` 注入输入；`flow.end` 聚合输出；`core.const.*`
   - [x] 数值：`math.add/sub/mul/div`
   - [x] 逻辑/比较/if/round（已补齐：`logic.*`、`compare.decimal.*`、`core.if.decimal`、`math.round`）
   - [x] 控制流与状态：`flow.*`、`locals.*`
@@ -189,7 +189,7 @@
 - [x] RabbitMQ consumer（routingKey：`compute.job.requested.v1`）
 - [x] 消息解析与校验（无法解析 `jobId` / `definitionRef` → DLQ；其余字段非法 → 写 `job.failed(INVALID_MESSAGE)` 并 ack）
 - [x] `jobId` 幂等处理（重复 payload 一致 → 直接 ack；不一致 → DLQ）
-- [x] 执行流程：读 DefinitionRelease → validate inputs → defaults → canonicalize → inputsHash → runner → outputsHash
+- [x] 执行流程：读 DefinitionRelease → validate inputs（按 start pins）→ defaults → canonicalize → inputsHash → runner → outputsHash
 - [x] 事务内写 `jobs + outbox` 后 ack（ack 时机要严格）
 
 **验收标准（DoD）**
@@ -272,9 +272,9 @@
 - 同时保持 Runner 的确定性（纯函数）与可对账能力（hash 可重放）。
 
 **任务**
-- [x] 去版本化：移除 `definition_versions` / `version_used` / `nodeVersion` / graph `schemaVersion`
+- [x] 去版本化：移除 `definition_versions` / `version_used` / `nodeVersion`；Graph 采用 `schemaVersion=2`（hard cut）
 - [x] DB 迁移清理重做：引入 `definition_releases`（以 `definitionHash` 标识）+ jobs 记录 `definition_hash_used`
-- [x] BlueprintGraph：`globals/entrypoints(params)/locals/execEdges`；value edges 必须 DAG；execEdges 允许环（loop）
+- [x] BlueprintGraph v2：`flow.start/flow.end/locals/execEdges`；value edges 必须 DAG；execEdges 允许环（loop）
 - [x] Node Catalog：`nodeType` 全局唯一（不再有 nodeVersion）；新增 `execInputs/execOutputs`
 - [x] Runner：控制流解释器（exec token）+ 惰性 value 求值（短路）+ locals store + limits（maxSteps/timeout/maxCallDepth）
 - [x] hashing 与 golden cases 更新（definitionHash/inputsHash/outputsHash）+ 文档对齐（API/Schema/Design）
@@ -299,8 +299,8 @@
 - Provider 发 `compute.job.requested.v1`：
   - 必带 `jobId`，重试复用同 jobId
   - 必带 `definitionRef.definitionId + definitionRef.definitionHash`（不再使用 version）
-  - 可选 `entrypointKey`（默认 `main`）
-  - `inputs` 建议按命名空间组织：`inputs.globals`、`inputs.params`（允许携带多余字段，但引擎只读取声明项）
+  - 可选 `entrypointKey`（保留字段；Graph v2 默认忽略）
+  - `inputs`：单一 object（key 对齐 `flow.start` pins；允许携带多余字段，但引擎只读取声明项）
   - `options` 仅允许 `options.decimal.precision/roundingMode`
 - Editor 发布 Definition：
   - `content` 不包含 runnerConfig（runnerConfig 单独字段提交）

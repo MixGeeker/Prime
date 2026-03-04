@@ -32,13 +32,10 @@ export const FLOW_CALL_DEFINITION_V1: NodeImplementation = {
     title: '调用子蓝图',
     category: 'flow',
     description:
-      '执行子蓝图（以 definitionHash 冻结引用）。输入为 globals/params(Json)，输出为 outputs(Json) + 可选强类型槽位。',
+      '执行子蓝图（以 definitionHash 冻结引用）。输入为 inputs(Json)，输出为 outputs(Json) + 可选强类型槽位。',
     execInputs: [{ name: 'in' }],
     execOutputs: [{ name: 'out' }],
-    inputs: [
-      { name: 'globals', valueType: 'Json' },
-      { name: 'params', valueType: 'Json' },
-    ],
+    inputs: [{ name: 'inputs', valueType: 'Json' }],
     outputs: [
       { name: 'outputs', valueType: 'Json' },
       { name: 'decimal0', valueType: 'Decimal' },
@@ -115,18 +112,11 @@ export const FLOW_CALL_DEFINITION_V1: NodeImplementation = {
       );
     }
 
-    const rawGlobals = inputs['globals'];
-    const rawParams = inputs['params'];
-    if (!isPlainObject(rawGlobals)) {
+    const rawInputs = inputs['inputs'];
+    if (!isPlainObject(rawInputs)) {
       throw new RunnerExecutionError(
         'RUNNER_DETERMINISTIC_ERROR',
-        `flow.call_definition inputs.globals must be an object: ${node.id}`,
-      );
-    }
-    if (!isPlainObject(rawParams)) {
-      throw new RunnerExecutionError(
-        'RUNNER_DETERMINISTIC_ERROR',
-        `flow.call_definition inputs.params must be an object: ${node.id}`,
+        `flow.call_definition inputs.inputs must be an object: ${node.id}`,
       );
     }
 
@@ -134,10 +124,7 @@ export const FLOW_CALL_DEFINITION_V1: NodeImplementation = {
       definitionId,
       definitionHash,
       entrypointKey,
-      inputs: {
-        globals: rawGlobals,
-        params: rawParams,
-      },
+      inputs: rawInputs,
     });
 
     const rawCalleeOutputs = callee.outputs;

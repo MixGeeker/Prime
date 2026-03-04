@@ -1,8 +1,8 @@
 # Provider Simulator（示例服务）
 
 这是一个用于演示 Compute Engine 端到端链路的 **Provider 模拟器**：
-- 管理 “全局 facts（inputs.globals）”
-- 接收 “业务输入（inputs.params + 其它字段）”
+- 管理 “全局 facts”（Provider 内部存储；投递时合并进 `inputs`）
+- 接收 “业务输入（inputs + 其它字段）”
 - 发布 `compute.job.requested.v1` 到 RabbitMQ
 - 订阅 `compute.job.succeeded.v1 / compute.job.failed.v1` 并落地结果（便于 Ops 仪表盘展示）
 

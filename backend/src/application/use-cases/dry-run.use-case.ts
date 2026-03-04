@@ -13,7 +13,7 @@ import {
 } from '../ports/definition-release-repository.port';
 import { GraphValidatorService } from '../validation/graph-validator.service';
 import type { ContentType } from '../../domain/definition/definition';
-import type { GraphJsonV1 } from '../validation/graph-json.types';
+import type { GraphJsonV2 } from '../validation/graph-json.types';
 import { HashingService } from '../hashing/hashing.service';
 import { RunnerExecutionError } from '../runner/runner.error';
 import { UseCaseError } from './use-case.error';
@@ -64,7 +64,7 @@ export class DryRunUseCase {
       );
     }
 
-    const graph = resolved.content as unknown as GraphJsonV1;
+    const graph = resolved.content as unknown as GraphJsonV2;
     const definitionHash = this.hashingService.computeDefinitionHash({
       contentType: resolved.contentType,
       content: resolved.content,
@@ -75,7 +75,6 @@ export class DryRunUseCase {
     const inputsSnapshot = this.hashingService.buildInputsSnapshot(
       graph,
       command.inputs,
-      command.entrypointKey,
       command.options,
     );
     if (!inputsSnapshot.ok) {
@@ -101,10 +100,7 @@ export class DryRunUseCase {
       runnerOutputs = this.runnerPort.run({
         content: resolved.content,
         entrypointKey: command.entrypointKey,
-        inputs: {
-          globals: inputsSnapshot.globals ?? {},
-          params: inputsSnapshot.params ?? {},
-        },
+        inputs: inputsSnapshot.inputs ?? {},
         runnerConfig: resolved.runnerConfig,
         options: inputsSnapshot.options ?? {},
         definitionBundle: dependencyBundle.bundle,
@@ -117,7 +113,7 @@ export class DryRunUseCase {
     }
 
     const outputsSnapshot = this.hashingService.buildOutputsSnapshot(
-      graph.outputs,
+      graph,
       runnerOutputs,
     );
     if (!outputsSnapshot.ok) {

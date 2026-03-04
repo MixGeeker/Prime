@@ -9,29 +9,67 @@
 import * as assert from 'node:assert';
 import { NodeCatalogService } from '../catalog/node-catalog.service';
 import { GraphRunnerService } from './graph-runner.service';
-import type { GraphJsonV1 } from '../validation/graph-json.types';
+import type { GraphJsonV2 } from '../validation/graph-json.types';
 import { RunnerExecutionError } from './runner.error';
 
 function run() {
   const runner = new GraphRunnerService(new NodeCatalogService());
 
-  // 1) Sequence：out0 必须先于 out1 执行
-  const graphSequence: GraphJsonV1 = {
-    globals: [],
-    entrypoints: [
-      { key: 'main', params: [], to: { nodeId: 'n_start', port: 'in' } },
+  // 0) Start pins：inputs 注入到 flow.start 的动态 value outputs
+  const graphInputs: GraphJsonV2 = {
+    schemaVersion: 2,
+    locals: [],
+    nodes: [
+      {
+        id: 'n_start',
+        nodeType: 'flow.start',
+        params: { dynamicOutputs: [{ name: 'a', valueType: 'Decimal' }] },
+      },
+      {
+        id: 'n_end',
+        nodeType: 'flow.end',
+        params: { dynamicInputs: [{ name: 'a', valueType: 'Decimal' }] },
+      },
     ],
+    edges: [
+      {
+        from: { nodeId: 'n_start', port: 'a' },
+        to: { nodeId: 'n_end', port: 'a' },
+      },
+    ],
+    execEdges: [
+      {
+        from: { nodeId: 'n_start', port: 'out' },
+        to: { nodeId: 'n_end', port: 'in' },
+      },
+    ],
+  };
+
+  const outInputs = runner.run({
+    content: graphInputs as unknown as Record<string, unknown>,
+    inputs: { a: '1.5' },
+    runnerConfig: null,
+    options: {},
+  }).outputs;
+  assert.deepStrictEqual(outInputs, { a: '1.5' });
+
+  // 1) Sequence：out0 必须先于 out1 执行
+  const graphSequence: GraphJsonV2 = {
+    schemaVersion: 2,
     locals: [{ name: 'x', valueType: 'Decimal', default: '0' }],
     nodes: [
-      { id: 'n_start', nodeType: 'flow.noop' },
+      { id: 'n_start', nodeType: 'flow.start' },
       { id: 'n_seq', nodeType: 'flow.sequence', params: { count: 2 } },
       { id: 'n_one', nodeType: 'core.const.decimal', params: { value: '1' } },
       { id: 'n_two', nodeType: 'core.const.decimal', params: { value: '2' } },
       { id: 'n_set1', nodeType: 'locals.set.decimal', params: { name: 'x' } },
       { id: 'n_set2', nodeType: 'locals.set.decimal', params: { name: 'x' } },
       { id: 'n_get', nodeType: 'locals.get.decimal', params: { name: 'x' } },
-      { id: 'n_out', nodeType: 'outputs.set.decimal', params: { key: 'x' } },
-      { id: 'n_return', nodeType: 'flow.return' },
+      {
+        id: 'n_end',
+        nodeType: 'flow.end',
+        params: { dynamicInputs: [{ name: 'x', valueType: 'Decimal' }] },
+      },
     ],
     edges: [
       {
@@ -44,7 +82,7 @@ function run() {
       },
       {
         from: { nodeId: 'n_get', port: 'value' },
-        to: { nodeId: 'n_out', port: 'value' },
+        to: { nodeId: 'n_end', port: 'x' },
       },
     ],
     execEdges: [
@@ -62,39 +100,25 @@ function run() {
       },
       {
         from: { nodeId: 'n_set2', port: 'out' },
-        to: { nodeId: 'n_out', port: 'in' },
-      },
-      {
-        from: { nodeId: 'n_out', port: 'out' },
-        to: { nodeId: 'n_return', port: 'in' },
-      },
-    ],
-    outputs: [
-      {
-        key: 'x',
-        valueType: 'Decimal',
+        to: { nodeId: 'n_end', port: 'in' },
       },
     ],
   };
 
   const outSequence = runner.run({
     content: graphSequence as unknown as Record<string, unknown>,
-    entrypointKey: 'main',
-    inputs: { globals: {}, params: {} },
+    inputs: {},
     runnerConfig: null,
     options: {},
   }).outputs;
   assert.deepStrictEqual(outSequence, { x: '2' });
 
   // 2) While：通过回连实现 3 次迭代后退出
-  const graphWhile: GraphJsonV1 = {
-    globals: [],
-    entrypoints: [
-      { key: 'main', params: [], to: { nodeId: 'n_start', port: 'in' } },
-    ],
+  const graphWhile: GraphJsonV2 = {
+    schemaVersion: 2,
     locals: [{ name: 'i', valueType: 'Decimal', default: '0' }],
     nodes: [
-      { id: 'n_start', nodeType: 'flow.noop' },
+      { id: 'n_start', nodeType: 'flow.start' },
       { id: 'n_while', nodeType: 'flow.while' },
       { id: 'n_get', nodeType: 'locals.get.decimal', params: { name: 'i' } },
       { id: 'n_three', nodeType: 'core.const.decimal', params: { value: '3' } },
@@ -102,8 +126,12 @@ function run() {
       { id: 'n_one', nodeType: 'core.const.decimal', params: { value: '1' } },
       { id: 'n_add', nodeType: 'math.add' },
       { id: 'n_set', nodeType: 'locals.set.decimal', params: { name: 'i' } },
-      { id: 'n_out', nodeType: 'outputs.set.decimal', params: { key: 'i' } },
-      { id: 'n_return', nodeType: 'flow.return' },
+      { id: 'n_get_out', nodeType: 'locals.get.decimal', params: { name: 'i' } },
+      {
+        id: 'n_end',
+        nodeType: 'flow.end',
+        params: { dynamicInputs: [{ name: 'i', valueType: 'Decimal' }] },
+      },
     ],
     edges: [
       {
@@ -131,8 +159,8 @@ function run() {
         to: { nodeId: 'n_set', port: 'value' },
       },
       {
-        from: { nodeId: 'n_get', port: 'value' },
-        to: { nodeId: 'n_out', port: 'value' },
+        from: { nodeId: 'n_get_out', port: 'value' },
+        to: { nodeId: 'n_end', port: 'i' },
       },
     ],
     execEdges: [
@@ -150,39 +178,25 @@ function run() {
       },
       {
         from: { nodeId: 'n_while', port: 'completed' },
-        to: { nodeId: 'n_out', port: 'in' },
-      },
-      {
-        from: { nodeId: 'n_out', port: 'out' },
-        to: { nodeId: 'n_return', port: 'in' },
-      },
-    ],
-    outputs: [
-      {
-        key: 'i',
-        valueType: 'Decimal',
+        to: { nodeId: 'n_end', port: 'in' },
       },
     ],
   };
 
   const outWhile = runner.run({
     content: graphWhile as unknown as Record<string, unknown>,
-    entrypointKey: 'main',
-    inputs: { globals: {}, params: {} },
+    inputs: {},
     runnerConfig: null,
     options: {},
   }).outputs;
   assert.deepStrictEqual(outWhile, { i: '3' });
 
   // 3) call_definition：成功调用子蓝图并映射强类型槽位
-  const callee: GraphJsonV1 = {
-    globals: [],
-    entrypoints: [
-      { key: 'main', params: [], to: { nodeId: 'n_out_price', port: 'in' } },
-    ],
+  const callee: GraphJsonV2 = {
+    schemaVersion: 2,
     locals: [],
     nodes: [
-      { id: 'n_return', nodeType: 'flow.return' },
+      { id: 'n_start', nodeType: 'flow.start' },
       {
         id: 'n_price',
         nodeType: 'core.const.decimal',
@@ -194,56 +208,39 @@ function run() {
         params: { value: 'USD' },
       },
       {
-        id: 'n_out_price',
-        nodeType: 'outputs.set.decimal',
-        params: { key: 'price' },
-      },
-      {
-        id: 'n_out_currency',
-        nodeType: 'outputs.set.string',
-        params: { key: 'currency' },
+        id: 'n_end',
+        nodeType: 'flow.end',
+        params: {
+          dynamicInputs: [
+            { name: 'price', valueType: 'Decimal' },
+            { name: 'currency', valueType: 'String' },
+          ],
+        },
       },
     ],
     edges: [
       {
         from: { nodeId: 'n_price', port: 'value' },
-        to: { nodeId: 'n_out_price', port: 'value' },
+        to: { nodeId: 'n_end', port: 'price' },
       },
       {
         from: { nodeId: 'n_currency', port: 'value' },
-        to: { nodeId: 'n_out_currency', port: 'value' },
+        to: { nodeId: 'n_end', port: 'currency' },
       },
     ],
     execEdges: [
       {
-        from: { nodeId: 'n_out_price', port: 'out' },
-        to: { nodeId: 'n_out_currency', port: 'in' },
-      },
-      {
-        from: { nodeId: 'n_out_currency', port: 'out' },
-        to: { nodeId: 'n_return', port: 'in' },
-      },
-    ],
-    outputs: [
-      {
-        key: 'price',
-        valueType: 'Decimal',
-      },
-      {
-        key: 'currency',
-        valueType: 'String',
+        from: { nodeId: 'n_start', port: 'out' },
+        to: { nodeId: 'n_end', port: 'in' },
       },
     ],
   };
 
-  const root: GraphJsonV1 = {
-    globals: [],
-    entrypoints: [
-      { key: 'main', params: [], to: { nodeId: 'n_start', port: 'in' } },
-    ],
+  const root: GraphJsonV2 = {
+    schemaVersion: 2,
     locals: [],
     nodes: [
-      { id: 'n_start', nodeType: 'flow.noop' },
+      { id: 'n_start', nodeType: 'flow.start' },
       {
         id: 'n_call',
         nodeType: 'flow.call_definition',
@@ -253,45 +250,39 @@ function run() {
           exposeOutputs: { decimal: ['price'], string: ['currency'] },
         },
       },
-      { id: 'n_globals', nodeType: 'core.const.json', params: { value: {} } },
-      { id: 'n_params', nodeType: 'core.const.json', params: { value: {} } },
       {
-        id: 'n_out_price',
-        nodeType: 'outputs.set.decimal',
-        params: { key: 'price' },
+        id: 'n_inputs',
+        nodeType: 'core.const.json',
+        params: { value: {} },
       },
       {
-        id: 'n_out_currency',
-        nodeType: 'outputs.set.string',
-        params: { key: 'currency' },
+        id: 'n_end',
+        nodeType: 'flow.end',
+        params: {
+          dynamicInputs: [
+            { name: 'price', valueType: 'Decimal' },
+            { name: 'currency', valueType: 'String' },
+            { name: 'raw', valueType: 'Json' },
+          ],
+        },
       },
-      {
-        id: 'n_out_raw',
-        nodeType: 'outputs.set.json',
-        params: { key: 'raw' },
-      },
-      { id: 'n_return', nodeType: 'flow.return' },
     ],
     edges: [
       {
-        from: { nodeId: 'n_globals', port: 'value' },
-        to: { nodeId: 'n_call', port: 'globals' },
-      },
-      {
-        from: { nodeId: 'n_params', port: 'value' },
-        to: { nodeId: 'n_call', port: 'params' },
+        from: { nodeId: 'n_inputs', port: 'value' },
+        to: { nodeId: 'n_call', port: 'inputs' },
       },
       {
         from: { nodeId: 'n_call', port: 'decimal0' },
-        to: { nodeId: 'n_out_price', port: 'value' },
+        to: { nodeId: 'n_end', port: 'price' },
       },
       {
         from: { nodeId: 'n_call', port: 'string0' },
-        to: { nodeId: 'n_out_currency', port: 'value' },
+        to: { nodeId: 'n_end', port: 'currency' },
       },
       {
         from: { nodeId: 'n_call', port: 'outputs' },
-        to: { nodeId: 'n_out_raw', port: 'value' },
+        to: { nodeId: 'n_end', port: 'raw' },
       },
     ],
     execEdges: [
@@ -301,41 +292,14 @@ function run() {
       },
       {
         from: { nodeId: 'n_call', port: 'out' },
-        to: { nodeId: 'n_out_price', port: 'in' },
-      },
-      {
-        from: { nodeId: 'n_out_price', port: 'out' },
-        to: { nodeId: 'n_out_currency', port: 'in' },
-      },
-      {
-        from: { nodeId: 'n_out_currency', port: 'out' },
-        to: { nodeId: 'n_out_raw', port: 'in' },
-      },
-      {
-        from: { nodeId: 'n_out_raw', port: 'out' },
-        to: { nodeId: 'n_return', port: 'in' },
-      },
-    ],
-    outputs: [
-      {
-        key: 'price',
-        valueType: 'Decimal',
-      },
-      {
-        key: 'currency',
-        valueType: 'String',
-      },
-      {
-        key: 'raw',
-        valueType: 'Json',
+        to: { nodeId: 'n_end', port: 'in' },
       },
     ],
   };
 
   const outCall = runner.run({
     content: root as unknown as Record<string, unknown>,
-    entrypointKey: 'main',
-    inputs: { globals: {}, params: {} },
+    inputs: {},
     runnerConfig: null,
     options: {},
     definitionBundle: [
@@ -357,8 +321,7 @@ function run() {
     () => {
       runner.run({
         content: root as unknown as Record<string, unknown>,
-        entrypointKey: 'main',
-        inputs: { globals: {}, params: {} },
+        inputs: {},
         runnerConfig: null,
         options: {},
         definitionBundle: [],
@@ -374,45 +337,37 @@ function run() {
   );
 
   // 5) maxCallDepth：A->B->C，限制为 1 时应在 B 调用 C 时失败
-  const graphC: GraphJsonV1 = {
-    globals: [],
-    entrypoints: [
-      { key: 'main', params: [], to: { nodeId: 'n_out', port: 'in' } },
-    ],
+  const graphC: GraphJsonV2 = {
+    schemaVersion: 2,
     locals: [],
     nodes: [
-      { id: 'n_return', nodeType: 'flow.return' },
+      { id: 'n_start', nodeType: 'flow.start' },
       { id: 'n_v', nodeType: 'core.const.decimal', params: { value: '1' } },
-      { id: 'n_out', nodeType: 'outputs.set.decimal', params: { key: 'v' } },
+      {
+        id: 'n_end',
+        nodeType: 'flow.end',
+        params: { dynamicInputs: [{ name: 'v', valueType: 'Decimal' }] },
+      },
     ],
     edges: [
       {
         from: { nodeId: 'n_v', port: 'value' },
-        to: { nodeId: 'n_out', port: 'value' },
+        to: { nodeId: 'n_end', port: 'v' },
       },
     ],
     execEdges: [
       {
-        from: { nodeId: 'n_out', port: 'out' },
-        to: { nodeId: 'n_return', port: 'in' },
-      },
-    ],
-    outputs: [
-      {
-        key: 'v',
-        valueType: 'Decimal',
+        from: { nodeId: 'n_start', port: 'out' },
+        to: { nodeId: 'n_end', port: 'in' },
       },
     ],
   };
 
-  const graphB: GraphJsonV1 = {
-    globals: [],
-    entrypoints: [
-      { key: 'main', params: [], to: { nodeId: 'n_start', port: 'in' } },
-    ],
+  const graphB: GraphJsonV2 = {
+    schemaVersion: 2,
     locals: [],
     nodes: [
-      { id: 'n_start', nodeType: 'flow.noop' },
+      { id: 'n_start', nodeType: 'flow.start' },
       {
         id: 'n_call_c',
         nodeType: 'flow.call_definition',
@@ -422,23 +377,21 @@ function run() {
           exposeOutputs: { decimal: ['v'] },
         },
       },
-      { id: 'n_globals', nodeType: 'core.const.json', params: { value: {} } },
-      { id: 'n_params', nodeType: 'core.const.json', params: { value: {} } },
-      { id: 'n_out', nodeType: 'outputs.set.decimal', params: { key: 'v' } },
-      { id: 'n_return', nodeType: 'flow.return' },
+      { id: 'n_inputs', nodeType: 'core.const.json', params: { value: {} } },
+      {
+        id: 'n_end',
+        nodeType: 'flow.end',
+        params: { dynamicInputs: [{ name: 'v', valueType: 'Decimal' }] },
+      },
     ],
     edges: [
       {
-        from: { nodeId: 'n_globals', port: 'value' },
-        to: { nodeId: 'n_call_c', port: 'globals' },
-      },
-      {
-        from: { nodeId: 'n_params', port: 'value' },
-        to: { nodeId: 'n_call_c', port: 'params' },
+        from: { nodeId: 'n_inputs', port: 'value' },
+        to: { nodeId: 'n_call_c', port: 'inputs' },
       },
       {
         from: { nodeId: 'n_call_c', port: 'decimal0' },
-        to: { nodeId: 'n_out', port: 'value' },
+        to: { nodeId: 'n_end', port: 'v' },
       },
     ],
     execEdges: [
@@ -448,29 +401,16 @@ function run() {
       },
       {
         from: { nodeId: 'n_call_c', port: 'out' },
-        to: { nodeId: 'n_out', port: 'in' },
-      },
-      {
-        from: { nodeId: 'n_out', port: 'out' },
-        to: { nodeId: 'n_return', port: 'in' },
-      },
-    ],
-    outputs: [
-      {
-        key: 'v',
-        valueType: 'Decimal',
+        to: { nodeId: 'n_end', port: 'in' },
       },
     ],
   };
 
-  const graphA: GraphJsonV1 = {
-    globals: [],
-    entrypoints: [
-      { key: 'main', params: [], to: { nodeId: 'n_start', port: 'in' } },
-    ],
+  const graphA: GraphJsonV2 = {
+    schemaVersion: 2,
     locals: [],
     nodes: [
-      { id: 'n_start', nodeType: 'flow.noop' },
+      { id: 'n_start', nodeType: 'flow.start' },
       {
         id: 'n_call_b',
         nodeType: 'flow.call_definition',
@@ -480,23 +420,21 @@ function run() {
           exposeOutputs: { decimal: ['v'] },
         },
       },
-      { id: 'n_globals', nodeType: 'core.const.json', params: { value: {} } },
-      { id: 'n_params', nodeType: 'core.const.json', params: { value: {} } },
-      { id: 'n_out', nodeType: 'outputs.set.decimal', params: { key: 'v' } },
-      { id: 'n_return', nodeType: 'flow.return' },
+      { id: 'n_inputs', nodeType: 'core.const.json', params: { value: {} } },
+      {
+        id: 'n_end',
+        nodeType: 'flow.end',
+        params: { dynamicInputs: [{ name: 'v', valueType: 'Decimal' }] },
+      },
     ],
     edges: [
       {
-        from: { nodeId: 'n_globals', port: 'value' },
-        to: { nodeId: 'n_call_b', port: 'globals' },
-      },
-      {
-        from: { nodeId: 'n_params', port: 'value' },
-        to: { nodeId: 'n_call_b', port: 'params' },
+        from: { nodeId: 'n_inputs', port: 'value' },
+        to: { nodeId: 'n_call_b', port: 'inputs' },
       },
       {
         from: { nodeId: 'n_call_b', port: 'decimal0' },
-        to: { nodeId: 'n_out', port: 'value' },
+        to: { nodeId: 'n_end', port: 'v' },
       },
     ],
     execEdges: [
@@ -506,17 +444,7 @@ function run() {
       },
       {
         from: { nodeId: 'n_call_b', port: 'out' },
-        to: { nodeId: 'n_out', port: 'in' },
-      },
-      {
-        from: { nodeId: 'n_out', port: 'out' },
-        to: { nodeId: 'n_return', port: 'in' },
-      },
-    ],
-    outputs: [
-      {
-        key: 'v',
-        valueType: 'Decimal',
+        to: { nodeId: 'n_end', port: 'in' },
       },
     ],
   };
@@ -525,8 +453,7 @@ function run() {
     () => {
       runner.run({
         content: graphA as unknown as Record<string, unknown>,
-        entrypointKey: 'main',
-        inputs: { globals: {}, params: {} },
+        inputs: {},
         runnerConfig: { limits: { maxCallDepth: 1 } },
         options: {},
         definitionBundle: [

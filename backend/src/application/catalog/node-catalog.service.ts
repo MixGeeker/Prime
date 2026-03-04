@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import Ajv, { type ErrorObject, type ValidateFunction } from 'ajv';
 import addFormats from 'ajv-formats';
 import { NODE_CATALOG_V1 } from './node-catalog.v1';
-import type { NodeCatalog, NodeDef } from './node-catalog.types';
+import type { NodeCatalog, NodeDef, NodePortDef } from './node-catalog.types';
+import type { GraphNode } from '../validation/graph-json.types';
 
 export type NodeKey = string;
 
@@ -56,6 +57,39 @@ export class NodeCatalogService {
 
   getNode(nodeType: string): NodeDef | undefined {
     return this.nodesByKey.get(this.getNodeKey(nodeType));
+  }
+
+  /**
+   * 解析“动态 pin”后的节点定义（UE Blueprint 风格）。
+   *
+   * 说明：
+   * - Catalog 里仍然是 nodeType 的“基准定义”（静态 ports）
+   * - 对于 `flow.start` / `flow.end`，其 value ports 来自 node.params.dynamicOutputs / dynamicInputs
+   * - 返回的 NodeDef 可能是一个新对象（避免污染 Catalog 内的基准定义）
+   */
+  getNodeDefForGraphNode(node: GraphNode): NodeDef | undefined {
+    const base = this.getNode(node.nodeType);
+    if (!base) return undefined;
+
+    if (node.nodeType === 'flow.start') {
+      const dynamic = readDynamicPorts(node.params?.['dynamicOutputs']);
+      if (dynamic.length === 0) return base;
+      return {
+        ...base,
+        outputs: [...base.outputs, ...dynamic],
+      };
+    }
+
+    if (node.nodeType === 'flow.end') {
+      const dynamic = readDynamicPorts(node.params?.['dynamicInputs']);
+      if (dynamic.length === 0) return base;
+      return {
+        ...base,
+        inputs: [...base.inputs, ...dynamic],
+      };
+    }
+
+    return base;
   }
 
   validateNodeParams(
@@ -136,4 +170,19 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   }
   const prototype = Object.getPrototypeOf(value) as object | null;
   return prototype === Object.prototype || prototype === null;
+}
+
+function readDynamicPorts(value: unknown): NodePortDef[] {
+  if (!Array.isArray(value)) return [];
+
+  const ports: NodePortDef[] = [];
+  for (const item of value) {
+    if (!isPlainObject(item)) continue;
+    const name = item['name'];
+    const valueType = item['valueType'];
+    if (typeof name !== 'string' || !name.trim()) continue;
+    if (typeof valueType !== 'string' || !valueType.trim()) continue;
+    ports.push({ name: name.trim(), valueType: valueType as any });
+  }
+  return ports;
 }

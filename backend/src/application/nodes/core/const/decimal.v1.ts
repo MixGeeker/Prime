@@ -20,7 +20,7 @@ export const CORE_CONST_DECIMAL_V1: NodeImplementation = {
           anyOf: [
             {
               type: 'string',
-              pattern: '^-?(0|[1-9]\\\\d*)(\\\\.\\\\d+)?$',
+              pattern: '^-?(0|[1-9]\\d*)(\\.\\d+)?$',
             },
             { type: 'number' },
           ],

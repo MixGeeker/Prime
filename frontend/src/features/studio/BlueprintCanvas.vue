@@ -10,7 +10,7 @@ import { ConnectionPlugin, Presets as ConnectionPresets } from 'rete-connection-
 import { VuePlugin, Presets as VuePresets } from 'rete-vue-plugin';
 import { HistoryExtensions, HistoryPlugin, Presets as HistoryPresets } from 'rete-history-plugin';
 
-import type { GraphEdge, GraphJsonV1, GraphNode, NodeCatalog, NodeDef, ValueType } from '@/engine/types';
+import type { GraphEdge, GraphJsonV2, GraphNode, NodeCatalog, NodeDef, ValueType } from '@/engine/types';
 import {
   getUiNodePositionMap,
   removeEdgesForNode,
@@ -25,7 +25,7 @@ type Schemes = GetSchemes<ClassicPreset.Node, Connection>;
 
 const props = defineProps<{
   catalog: NodeCatalog;
-  graph: GraphJsonV1;
+  graph: GraphJsonV2;
 }>();
 
 const emit = defineEmits<{
@@ -63,6 +63,56 @@ function stripKeyPrefix(key: string): string {
 
 function findNodeDef(nodeType: string): NodeDef | undefined {
   return props.catalog.nodes.find((n) => n.nodeType === nodeType);
+}
+
+const VALUE_TYPES: ValueType[] = ['Decimal', 'Ratio', 'String', 'Boolean', 'DateTime', 'Json'];
+
+function isValueType(value: unknown): value is ValueType {
+  return typeof value === 'string' && VALUE_TYPES.includes(value as ValueType);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object') return false;
+  const proto = Object.getPrototypeOf(value) as object | null;
+  return proto === Object.prototype || proto === null;
+}
+
+function readDynamicPorts(value: unknown): Array<{ name: string; valueType: ValueType }> {
+  if (!Array.isArray(value)) return [];
+  const ports: Array<{ name: string; valueType: ValueType }> = [];
+  for (const item of value) {
+    if (!isPlainObject(item)) continue;
+    const name = item['name'];
+    const valueType = item['valueType'];
+    if (typeof name !== 'string' || !name.trim()) continue;
+    if (!isValueType(valueType)) continue;
+    ports.push({ name: name.trim(), valueType });
+  }
+  return ports;
+}
+
+function resolveNodeDefForGraphNode(def: NodeDef, graphNode: GraphNode): NodeDef {
+  const params = (graphNode.params ?? {}) as Record<string, unknown>;
+
+  if (graphNode.nodeType === 'flow.start') {
+    const dynamic = readDynamicPorts(params['dynamicOutputs']);
+    if (dynamic.length === 0) return def;
+    return {
+      ...def,
+      outputs: [...def.outputs, ...dynamic],
+    };
+  }
+
+  if (graphNode.nodeType === 'flow.end') {
+    const dynamic = readDynamicPorts(params['dynamicInputs']);
+    if (dynamic.length === 0) return def;
+    return {
+      ...def,
+      inputs: [...def.inputs, ...dynamic],
+    };
+  }
+
+  return def;
 }
 
 function truncateText(text: string, max: number): string {
@@ -113,17 +163,18 @@ function buildNodeLabel(def: NodeDef, graphNode: GraphNode): string {
 }
 
 function buildReteNode(def: NodeDef, graphNode: GraphNode) {
+  const resolvedDef = resolveNodeDefForGraphNode(def, graphNode);
   const node = new ClassicPreset.Node(buildNodeLabel(def, graphNode));
   node.id = graphNode.id;
 
   // value inputs/outputs
-  for (const input of def.inputs) {
+  for (const input of resolvedDef.inputs) {
     node.addInput(
       portKey('in', input.name) as any,
       new ClassicPreset.Input(sockets[input.valueType], input.name, false),
     );
   }
-  for (const output of def.outputs) {
+  for (const output of resolvedDef.outputs) {
     node.addOutput(
       portKey('out', output.name) as any,
       new ClassicPreset.Output(sockets[output.valueType], output.name, true),
@@ -131,13 +182,13 @@ function buildReteNode(def: NodeDef, graphNode: GraphNode) {
   }
 
   // exec inputs/outputs（控制流）
-  for (const input of def.execInputs ?? []) {
+  for (const input of resolvedDef.execInputs ?? []) {
     node.addInput(
       portKey('exec_in', input.name) as any,
       new ClassicPreset.Input(sockets.exec, input.name, false),
     );
   }
-  for (const output of def.execOutputs ?? []) {
+  for (const output of resolvedDef.execOutputs ?? []) {
     // exec 输出端口最多 1 条出边（图层约束），因此 output.multipleConnections=false
     node.addOutput(
       portKey('exec_out', output.name) as any,

@@ -63,8 +63,7 @@ export type InputsCatalogItem = {
   example?: unknown;
 };
 
-export type InputsCatalogV1 = {
-  schemaVersion: 1;
-  globals: InputsCatalogItem[];
-  params: InputsCatalogItem[];
+export type InputsCatalogV2 = {
+  schemaVersion: 2;
+  inputs: InputsCatalogItem[];
 };
