@@ -255,6 +255,61 @@
           </el-form>
         </el-card>
 
+        <el-card class="stat" style="margin-bottom: 12px">
+          <template #header>压测（批量触发 Job）</template>
+          <el-form label-position="top">
+            <div style="display: flex; gap: 16px; margin-bottom: 12px">
+              <el-form-item label="发送总数" style="flex: 1; margin-bottom: 0">
+                <el-input-number
+                  v-model="stressTest.total"
+                  :min="1"
+                  :max="5000"
+                  :disabled="stressTest.running"
+                  style="width: 100%"
+                />
+              </el-form-item>
+              <el-form-item label="并发数" style="flex: 1; margin-bottom: 0">
+                <el-input-number
+                  v-model="stressTest.concurrency"
+                  :min="1"
+                  :max="100"
+                  :disabled="stressTest.running"
+                  style="width: 100%"
+                />
+              </el-form-item>
+            </div>
+
+            <div v-if="stressTest.running || stressTestCompleted > 0" style="margin-bottom: 12px">
+              <el-progress
+                :percentage="stressTestProgress"
+                :status="stressTest.running ? undefined : stressTest.failed > 0 ? 'exception' : 'success'"
+              />
+              <div style="display: flex; gap: 16px; margin-top: 8px; flex-wrap: wrap; font-size: 13px">
+                <span class="muted">已完成 {{ stressTestCompleted }} / {{ stressTest.total }}</span>
+                <span style="color: var(--el-color-success)">成功 {{ stressTest.success }}</span>
+                <span style="color: var(--el-color-danger)">失败 {{ stressTest.failed }}</span>
+                <span class="muted">耗时 {{ (stressTest.elapsedMs / 1000).toFixed(2) }}s</span>
+                <span v-if="!stressTest.running && stressTestCompleted > 0 && stressTest.elapsedMs > 0" class="muted">
+                  吞吐 {{ (stressTestCompleted / (stressTest.elapsedMs / 1000)).toFixed(1) }} req/s
+                </span>
+              </div>
+            </div>
+
+            <div class="row">
+              <el-button
+                v-if="!stressTest.running"
+                type="warning"
+                :disabled="!canTriggerProviderJob"
+                @click="runStressTest"
+              >
+                开始压测
+              </el-button>
+              <el-button v-else type="danger" @click="stressTest.aborted = true">中止</el-button>
+              <span class="muted" style="font-size: 12px">复用上方表单的 definitionId / hash / inputs / options</span>
+            </div>
+          </el-form>
+        </el-card>
+
         <el-card class="stat">
           <template #header>
             <div class="hdr">
@@ -451,6 +506,21 @@ const loadingAll = computed(() => opsLoading.value || defsLoading.value || jobsL
 const canTriggerProviderJob = computed(
   () => Boolean(trimmedString(providerJobForm.definitionId) && trimmedString(providerJobForm.definitionHash)),
 );
+
+const stressTest = reactive({
+  total: 100,
+  concurrency: 10,
+  running: false,
+  success: 0,
+  failed: 0,
+  elapsedMs: 0,
+  aborted: false,
+});
+const stressTestCompleted = computed(() => stressTest.success + stressTest.failed);
+const stressTestProgress = computed(() => {
+  if (stressTest.total === 0) return 0;
+  return Math.min(100, Math.round((stressTestCompleted.value / stressTest.total) * 100));
+});
 
 function parseJsonObject(text: string, field: string): { ok: true; value: Record<string, unknown> } | { ok: false; error: string } {
   try {
@@ -855,6 +925,71 @@ async function triggerProviderJob() {
   } finally {
     providerTriggerLoading.value = false;
   }
+}
+
+async function runStressTest() {
+  providerJobForm.paramsError = null;
+  providerJobForm.optionsError = null;
+
+  const definitionId = trimmedString(providerJobForm.definitionId);
+  const definitionHash = trimmedString(providerJobForm.definitionHash);
+  if (!definitionId || !definitionHash) {
+    ElMessage.warning('请先填写 definitionId / definitionHash');
+    return;
+  }
+
+  const paramsParsed = parseJsonObject(providerJobForm.paramsJson, 'inputs');
+  if (!paramsParsed.ok) {
+    providerJobForm.paramsError = paramsParsed.error;
+    return;
+  }
+  const optionsParsed = parseJsonObject(providerJobForm.optionsJson, 'options');
+  if (!optionsParsed.ok) {
+    providerJobForm.optionsError = optionsParsed.error;
+    return;
+  }
+
+  stressTest.running = true;
+  stressTest.success = 0;
+  stressTest.failed = 0;
+  stressTest.elapsedMs = 0;
+  stressTest.aborted = false;
+
+  const startTime = Date.now();
+  const total = stressTest.total;
+  const concurrency = stressTest.concurrency;
+  const payload = {
+    definitionRef: { definitionId, definitionHash },
+    inputs: paramsParsed.value,
+    options: optionsParsed.value,
+    mergeGlobalFacts: providerJobForm.mergeGlobalFacts,
+  };
+
+  let dispatched = 0;
+
+  async function worker(): Promise<void> {
+    while (dispatched < total && !stressTest.aborted) {
+      dispatched++;
+      try {
+        await providerSimulatorApi.triggerJob(payload);
+        stressTest.success++;
+      } catch {
+        stressTest.failed++;
+      }
+      stressTest.elapsedMs = Date.now() - startTime;
+    }
+  }
+
+  const workerCount = Math.min(concurrency, total);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  stressTest.elapsedMs = Date.now() - startTime;
+  stressTest.running = false;
+
+  const abortNote = stressTest.aborted ? '（已中止）' : '';
+  ElMessage.success(
+    `压测完成${abortNote}：成功 ${stressTest.success} / 失败 ${stressTest.failed}，耗时 ${(stressTest.elapsedMs / 1000).toFixed(2)}s`,
+  );
 }
 
 async function loadProviderJobs() {
