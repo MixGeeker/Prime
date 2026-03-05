@@ -21,6 +21,13 @@ export class MqClient {
   private consumeChannel: Channel | null = null;
   private stopping = false;
 
+  private readonly confirmIntervalMs: number;
+  private readonly confirmBatchSize: number;
+  private confirmTimer: NodeJS.Timeout | null = null;
+  private confirmInFlight: Promise<void> | null = null;
+  private confirmRequestedWhileInFlight = false;
+  private pendingConfirms = 0;
+
   constructor(
     private readonly params: {
       rabbitUrl: string;
@@ -29,9 +36,25 @@ export class MqClient {
       jobRequestedRoutingKey: string;
       resultsQueue: string;
       prefetch: number;
+      /**
+       * Confirm channel 的确认批处理窗口（ms）。
+       * - 越大：吞吐更高、但进程崩溃时更可能丢“已响应但未确认”的消息
+       * - 越小：更接近逐条确认，但吞吐更差
+       */
+      publishConfirmIntervalMs?: number;
+      /** 当待确认数达到阈值时触发一次确认 flush（避免无限堆积） */
+      publishConfirmBatchSize?: number;
     },
     private readonly storage: Storage,
-  ) {}
+  ) {
+    const interval = Number(params.publishConfirmIntervalMs ?? 50);
+    this.confirmIntervalMs =
+      Number.isFinite(interval) && interval >= 10 ? interval : 50;
+
+    const batchSize = Number(params.publishConfirmBatchSize ?? 200);
+    this.confirmBatchSize =
+      Number.isFinite(batchSize) && batchSize >= 1 ? batchSize : 200;
+  }
 
   async start() {
     this.stopping = false;
@@ -77,7 +100,66 @@ export class MqClient {
       await new Promise<void>((resolve) => ch.once('drain', () => resolve()));
     }
 
-    await ch.waitForConfirms();
+    // confirm 批处理：避免每条消息都 waitForConfirms()
+    this.pendingConfirms++;
+    if (this.pendingConfirms >= this.confirmBatchSize) {
+      void this.flushConfirms();
+    } else {
+      this.scheduleConfirm();
+    }
+  }
+
+  private scheduleConfirm() {
+    if (this.stopping) return;
+    if (this.confirmTimer) return;
+    this.confirmTimer = setTimeout(() => {
+      this.confirmTimer = null;
+      void this.flushConfirms();
+    }, this.confirmIntervalMs);
+  }
+
+  private async flushConfirms() {
+    const ch = this.publishChannel;
+    if (!ch) return;
+
+    if (this.confirmInFlight) {
+      this.confirmRequestedWhileInFlight = true;
+      return;
+    }
+
+    if (this.pendingConfirms <= 0) {
+      return;
+    }
+    this.pendingConfirms = 0;
+
+    const startedAt = Date.now();
+    const p = ch.waitForConfirms();
+    this.confirmInFlight = p;
+    try {
+      await p;
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[provider-simulator] waitForConfirms failed: ${toErrorText(error)}`,
+      );
+      await this.teardown('waitForConfirms_failed');
+      return;
+    } finally {
+      this.confirmInFlight = null;
+    }
+
+    const durationMs = Date.now() - startedAt;
+    if (durationMs >= 200) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[provider-simulator] mq confirm slow: durationMs=${durationMs}`,
+      );
+    }
+
+    if (this.confirmRequestedWhileInFlight || this.pendingConfirms > 0) {
+      this.confirmRequestedWhileInFlight = false;
+      this.scheduleConfirm();
+    }
   }
 
   private async runMainLoop() {
@@ -143,6 +225,12 @@ export class MqClient {
     this.connection = null;
     this.publishChannel = null;
     this.consumeChannel = null;
+    this.pendingConfirms = 0;
+    this.confirmRequestedWhileInFlight = false;
+    if (this.confirmTimer) {
+      clearTimeout(this.confirmTimer);
+      this.confirmTimer = null;
+    }
 
     try {
       await ch?.close();

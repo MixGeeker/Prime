@@ -170,8 +170,20 @@ export async function createServer(params: {
       payload,
     };
 
-    await params.storage.upsertJob(stored);
-    await params.mq.publishJob(payload, { messageId: jobId, correlationId });
+    try {
+      // 先更新本地视图（内存），落盘为异步批处理；避免请求路径同步写盘。
+      await params.storage.upsertJob(stored);
+      // MQ 发布为 confirm 批处理；避免每条消息 waitForConfirms()。
+      await params.mq.publishJob(payload, { messageId: jobId, correlationId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === 'MQ not connected') {
+        reply.code(503);
+        return { code: 'MQ_NOT_CONNECTED', message };
+      }
+      reply.code(500);
+      return { code: 'INTERNAL_ERROR', message };
+    }
 
     return { ok: true, jobId };
   });
