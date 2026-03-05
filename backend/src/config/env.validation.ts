@@ -151,6 +151,17 @@ export class EnvVars {
   @IsBoolean()
   METRICS_COLLECT_DEFAULT: boolean = true;
 
+  /**
+   * 是否在 Worker 进程内启动 metrics HTTP server（暴露 /metrics）。
+   *
+   * 说明：
+   * - 仅影响 Worker metrics HTTP server 是否 listen 端口；不影响 HTTP 进程的 /metrics。
+   * - 适用于同一台机器上启动多个 worker 时避免端口冲突（不影响 MQ 消费/执行/Outbox 发布）。
+   */
+  @IsOptional()
+  @IsBoolean()
+  WORKER_METRICS_ENABLED: boolean = true;
+
   /** Worker 进程暴露 metrics 的 HTTP 端口（Worker 采用 ApplicationContext，不占用 HTTP_PORT） */
   @IsOptional()
   @IsInt()

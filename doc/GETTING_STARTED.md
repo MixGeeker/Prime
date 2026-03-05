@@ -55,7 +55,7 @@ cd backend
 npm run start:worker
 ```
 
-> 提示：默认 `WORKER_METRICS_PORT=4021`，避免与 Provider Simulator 的 4020 冲突（见 `backend/.env.example`）。
+> 提示：本机多 worker 容易 metrics 端口冲突；默认 `backend/.env.example` 里关闭了 `WORKER_METRICS_ENABLED`，需要时再开启并为不同进程分配不同 `WORKER_METRICS_PORT`。
 
 ### 1.4 启动 Provider Simulator
 

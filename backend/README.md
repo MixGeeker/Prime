@@ -78,7 +78,7 @@ $env:WORKER_ROLES="dispatcher"; npm run start:worker
 $env:WORKER_ROLES="maintenance"; npm run start:worker
 ```
 
-> Worker metrics（默认 `http://localhost:4020/metrics`）由 `WORKER_METRICS_PORT` / `METRICS_PATH` 控制。
+> Worker metrics 默认由 `WORKER_METRICS_ENABLED` 控制是否启用；启用后由 `WORKER_METRICS_PORT` / `METRICS_PATH` 控制访问地址（若同机跑多个 worker，建议关闭或为每个进程分配不同端口）。
 
 ---
 

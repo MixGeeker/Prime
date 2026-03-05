@@ -2,6 +2,7 @@
  * WorkerMetricsHttpServerService：在 worker 进程内启动 metrics HTTP server。
  *
  * 说明：
+ * - 是否启用由 METRICS_ENABLED + WORKER_METRICS_ENABLED 控制
  * - 监听端口由 WORKER_METRICS_PORT 控制
  * - 路径由 METRICS_PATH 控制
  */
@@ -29,8 +30,15 @@ export class WorkerMetricsHttpServerService
   ) {}
 
   async onModuleInit() {
-    const enabled = this.configService.get<boolean>('METRICS_ENABLED') ?? true;
-    if (!enabled) {
+    const metricsEnabled = this.configService.get<boolean>('METRICS_ENABLED') ?? true;
+    if (!metricsEnabled) {
+      return;
+    }
+
+    const workerMetricsEnabled =
+      this.configService.get<boolean>('WORKER_METRICS_ENABLED') ?? true;
+    if (!workerMetricsEnabled) {
+      this.logger.log('Worker metrics HTTP server disabled.');
       return;
     }
 
@@ -66,14 +74,34 @@ export class WorkerMetricsHttpServerService
         });
     });
 
-    await new Promise<void>((resolve, reject) => {
-      if (!this.server) {
-        resolve();
-        return;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        if (!this.server) {
+          resolve();
+          return;
+        }
+        this.server.once('error', reject);
+        this.server.listen(port, resolve);
+      });
+    } catch (error) {
+      const err = error as { code?: unknown; message?: unknown };
+      const code = typeof err?.code === 'string' ? err.code : undefined;
+      // metrics 端口冲突不应影响 worker 主流程（MQ 消费/执行/Outbox 发布）。
+      if (code === 'EADDRINUSE') {
+        this.logger.warn(
+          `Worker metrics port ${port} already in use; metrics endpoint disabled. Set WORKER_METRICS_PORT or WORKER_METRICS_ENABLED=false.`,
+        );
+      } else {
+        this.logger.warn(
+          `Worker metrics server failed to listen on port ${port}; metrics endpoint disabled: ${String(error)}`,
+        );
       }
-      this.server.once('error', reject);
-      this.server.listen(port, resolve);
-    });
+      try {
+        this.server?.close();
+      } catch {}
+      this.server = null;
+      return;
+    }
 
     this.logger.log(
       `Worker metrics listening on http://localhost:${port}${path}`,
