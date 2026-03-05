@@ -8,7 +8,7 @@
 
 ---
 
-## Provider 到底负责什么（人话版）
+## Provider 到底负责什么
 
 Provider 可以理解成“适配层/翻译官”：
 
@@ -26,7 +26,7 @@ Provider 可以理解成“适配层/翻译官”：
 
 ## inputs 怎么拼（最关键）
 
-### 人话解释：只看 `flow.start` 声明的 pins
+### 解释：只看 `flow.start` 声明的 pins
 
 Graph v2 里，图的输入契约来自 `flow.start.params.dynamicOutputs[]`。
 Provider 的 `inputs` 里，**只有这些 pin.name 对应的字段会被读取/校验**。
@@ -56,7 +56,7 @@ Provider 的 `inputs` 里，**只有这些 pin.name 对应的字段会被读取/
 
 ## jobId 幂等怎么做（避免重复执行）
 
-### 人话解释
+### 解释
 
 消息系统的现实是：消息可能重复、网络可能抖、你可能重试。
 所以你必须有一个稳定的 `jobId` 来把“同一笔业务的同一次计算”绑定起来。
@@ -72,7 +72,7 @@ Provider 的 `inputs` 里，**只有这些 pin.name 对应的字段会被读取/
 
 ## 结果事件为什么要去重（messageId）
 
-### 人话解释
+### 解释
 
 `succeeded/failed` 事件是 **至少一次（at-least-once）**：同一个结果事件可能会重复投递。
 所以消费方必须去重，否则你可能把同一份结果写库两次/触发两次回调。

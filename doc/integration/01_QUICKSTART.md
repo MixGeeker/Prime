@@ -70,7 +70,7 @@ node .\scripts\start.mjs --mode dev
 
 接下来脚本会在终端里打印“下一步怎么做”（包含 `npm ci`、`.env`、`migration`、`start:dev`、`start:worker` 等），按提示逐个执行即可。
 
-> 小白提示：如果你看到 Graph 校验报 `globals/entrypoints/outputs`（Graph v1 字段），九成是 **API/worker 有一个没重启**，详见 [`07_TROUBLESHOOTING.md`](07_TROUBLESHOOTING.md)。
+> 提示：如果你看到 Graph 校验报 `globals/entrypoints/outputs`（Graph v1 字段），九成是 **API/worker 有一个没重启**，详见 [`07_TROUBLESHOOTING.md`](07_TROUBLESHOOTING.md)。
 
 ## 第一步：确认后端就绪
 
@@ -94,7 +94,7 @@ node .\scripts\start.mjs --mode dev
 5. 点 **Validate（校验）**：确保没有红色错误
 6. 点 **Publish（发布）**：发布成功后会出现一个 hash（`definitionHash`）
 
-> 小白解释：发布以后得到的 `definitionHash` 就像“这份图的指纹”。它不可变。以后 Provider 触发 job 时，必须指定这个 hash 才能保证跑的就是你发布的那一版。
+发布以后得到的 `definitionHash` 就像“这份图的指纹”。它不可变。以后 Provider 触发 job 时，必须指定这个 hash 才能保证跑的就是你发布的那一版。
 
 ## 第三步：用 Ops 触发一次 Provider job
 

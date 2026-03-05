@@ -19,14 +19,14 @@
 $base = "http://localhost:4010"
 ```
 
-> 小白提示：如果你用 `node scripts/start.mjs` 启动，脚本可能因端口冲突自动 +1。
+> 提示：如果你用 `node scripts/start.mjs` 启动，脚本可能因端口冲突自动 +1。
 > 以脚本输出的端口为准，然后把 `$base` 改成对应端口。
 
 ---
 
 ## 1) 我想列出 definitions（并搜索）
 
-### 人话解释
+### 解释
 
 Definition 列表可以让你看到：
 
@@ -52,7 +52,7 @@ curl.exe -sS "http://localhost:4010/admin/definitions?q=%E6%B5%8B&limit=50"
 
 ## 2) 我想找到某个 definition 的“最新已发布 hash”
 
-### 人话解释
+### 解释
 
 Provider 触发执行时必须给 `definitionHash`。
 最常见需求是“选最新发布版本”。
@@ -75,7 +75,7 @@ $latest.definitionHash
 
 ## 3) 我想读取某个发布物（拿到图 content）
 
-### 人话解释
+### 解释
 
 这通常用于：
 
@@ -97,7 +97,7 @@ Invoke-RestMethod "$base/admin/definitions/$idEsc/releases/$hashEsc" -Method Get
 
 ## 4) 我想 Validate（校验）一个发布物/草稿
 
-### 人话解释
+### 解释
 
 Validate 会返回一组结构化错误：你可以在 UI 里把它翻译成用户能看懂的提示。
 它不会执行图，只做“合法性检查”。
@@ -151,7 +151,7 @@ Invoke-RestMethod "$base/admin/definitions/validate" -Method Post -ContentType "
 
 ## 5) 我想 Dry-run（预览执行，不走 MQ）
 
-### 人话解释
+### 解释
 
 Dry-run 是最适合新手调试的接口：
 你给定 definition + inputs，它直接返回 outputs（不落库、不发 MQ）。
@@ -246,7 +246,7 @@ Invoke-RestMethod "$base/admin/definitions/$idEsc/draft" -Method Put -ContentTyp
 
 ## 7) 我想 Publish（发布）一个 draft
 
-### 人话解释
+### 解释
 
 发布成功后得到 `definitionHash`，后续执行必须引用它。
 发布不会删除 draft（取决于实现策略），但通常意味着“此版本可被执行”。

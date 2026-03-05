@@ -48,7 +48,7 @@ node scripts/start.mjs
 
 ## 文档索引
 
-- 集成文档（小白版，面向集成方）：`doc/integration/README.md`
+- 集成文档（面向集成方）：`doc/integration/README.md`
 - 总体设计：`doc/COMPUTE_ENGINE_DESIGN.md`
 - 后端执行链路：`doc/BACKEND_EXECUTION.md`
 - 后端工程指南：`doc/BACKEND_GUIDE.md`
