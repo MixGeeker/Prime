@@ -263,7 +263,7 @@
                 <el-input-number
                   v-model="stressTest.total"
                   :min="1"
-                  :max="5000"
+                  :max="500000"
                   :disabled="stressTest.running"
                   style="width: 100%"
                 />
@@ -272,7 +272,7 @@
                 <el-input-number
                   v-model="stressTest.concurrency"
                   :min="1"
-                  :max="100"
+                  :max="10000"
                   :disabled="stressTest.running"
                   style="width: 100%"
                 />
@@ -955,9 +955,15 @@ async function runStressTest() {
   stressTest.elapsedMs = 0;
   stressTest.aborted = false;
 
+  // 与 UI 上限保持一致，避免通过脚本/手动改模型绕过限制。
+  const MAX_STRESS_TOTAL = 500000;
+  const MAX_STRESS_CONCURRENCY = 10000;
   const startTime = Date.now();
-  const total = stressTest.total;
-  const concurrency = stressTest.concurrency;
+  const total = Math.max(1, Math.min(stressTest.total, MAX_STRESS_TOTAL));
+  const concurrency = Math.max(
+    1,
+    Math.min(stressTest.concurrency, MAX_STRESS_CONCURRENCY),
+  );
   const payload = {
     definitionRef: { definitionId, definitionHash },
     inputs: paramsParsed.value,
