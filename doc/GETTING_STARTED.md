@@ -55,7 +55,7 @@ cd backend
 npm run start:worker
 ```
 
-> 提示：本机多 worker 容易 metrics 端口冲突；默认 `backend/.env.example` 里关闭了 `WORKER_METRICS_ENABLED`，需要时再开启并为不同进程分配不同 `WORKER_METRICS_PORT`。
+> 提示：本机多 worker 容易 metrics 端口冲突；默认 `backend/.env.example` 里关闭了 `WORKER_METRICS_ENABLED`。如需查看 worker 指标，设置 `WORKER_METRICS_ENABLED=true` 并为不同进程分配不同 `WORKER_METRICS_PORT`，访问 `http://localhost:<WORKER_METRICS_PORT>/metrics`。
 
 ### 1.4 启动 Provider Simulator
 

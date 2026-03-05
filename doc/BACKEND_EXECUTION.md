@@ -212,7 +212,7 @@
 - [x] outbox 表锁策略（`SKIP LOCKED` / leased lock）
 - [x] publisher confirm（RabbitMQ confirm channel）
 - [x] 退避重试：nextRetryAt + attempts + lastError
-- [x] 指标：Prometheus `/metrics`（pending/failed、发布耗时、dispatcher lease/发布成功率）
+- [x] 指标：Prometheus `/metrics`（worker 进程；pending/failed、发布耗时、dispatcher lease/发布成功率；可通过 `WORKER_METRICS_ENABLED/WORKER_METRICS_PORT` 控制暴露）
 
 **验收标准（DoD）**
 - 模拟 MQ 断开/恢复：pending 能最终发出且不重复
@@ -230,7 +230,7 @@
 
 **任务**
 - [x] 统一日志字段：关键链路带上 `jobId/messageId/correlationId/definitionRef`（便于对账与定位）
-- [x] 关键指标与告警建议：提供 `/metrics`，可基于 outbox backlog / job 失败率 / DLQ 堆积做告警
+- [x] 关键指标与告警建议：提供 `/metrics`（主要来自 worker 指标端），可基于 outbox backlog / job 失败率 / DLQ 堆积做告警
 - [x] DLQ 回放工具：Admin API（受开关+token 保护）回放 `compute.job.requested.v1.dlq`，复用 jobId 幂等
 - [x] 资源保护：`MQ_MAX_MESSAGE_BYTES`、DLQ 回放 `DLQ_REPLAY_MAX_LIMIT`、runnerConfig.limits（maxNodes/maxDepth/timeout）
 

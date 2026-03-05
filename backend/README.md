@@ -54,7 +54,7 @@ npm run start:dev
 - Ready（真实探测 DB + MQ，不就绪返回 503）：`GET /ready`
 - Swagger UI：`GET /docs`
 - Node Catalog：`GET /catalog/nodes`
-- Metrics（可选）：`GET /metrics`（由 `METRICS_ENABLED` 控制）
+- Metrics（可选）：`GET /metrics`（HTTP 进程；由 `METRICS_ENABLED` 控制）
 
 ### 4) 启动 Worker（Consumer/Dispatcher/Maintenance）
 
@@ -78,7 +78,7 @@ $env:WORKER_ROLES="dispatcher"; npm run start:worker
 $env:WORKER_ROLES="maintenance"; npm run start:worker
 ```
 
-> Worker metrics 默认由 `WORKER_METRICS_ENABLED` 控制是否启用；启用后由 `WORKER_METRICS_PORT` / `METRICS_PATH` 控制访问地址（若同机跑多个 worker，建议关闭或为每个进程分配不同端口）。
+> Worker metrics（包含 job/outbox/MQ 等 worker 指标）默认由 `WORKER_METRICS_ENABLED` 控制是否启用；启用后由 `WORKER_METRICS_PORT` / `METRICS_PATH` 控制访问地址（若同机跑多个 worker，建议关闭或为每个进程分配不同端口）。
 
 ---
 
