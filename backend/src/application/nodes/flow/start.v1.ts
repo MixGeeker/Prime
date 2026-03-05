@@ -27,7 +27,14 @@ export const FLOW_START_V1: NodeImplementation = {
               label: { type: 'string' },
               valueType: {
                 type: 'string',
-                enum: ['Decimal', 'Ratio', 'String', 'Boolean', 'DateTime', 'Json'],
+                enum: [
+                  'Decimal',
+                  'Ratio',
+                  'String',
+                  'Boolean',
+                  'DateTime',
+                  'Json',
+                ],
               },
               required: { type: 'boolean' },
               defaultValue: {},

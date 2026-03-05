@@ -300,8 +300,7 @@ export class GraphValidatorService {
             const pins = readPinDefs(indexed.node.params?.['calleeInputPins']);
             const pin = pins.find((p) => p.name === input.name) ?? null;
             const required = pin ? (pin.required ?? true) : true;
-            const hasDefault =
-              pin ? Object.prototype.hasOwnProperty.call(pin, 'defaultValue') : false;
+            const hasDefault = pin ? Object.hasOwn(pin, 'defaultValue') : false;
             if (!required || hasDefault) {
               continue;
             }
@@ -511,7 +510,7 @@ export class GraphValidatorService {
 
     // 验证 start/end 的 pins（唯一性/默认值/rounding）
     if (startNodes.length === 1) {
-      const start = startNodes[0]!;
+      const start = startNodes[0];
       const indexed = nodeIndex.get(start.id);
       if (indexed?.nodeDef && indexed.paramsOk) {
         const hasExecInputs = (indexed.nodeDef.execInputs ?? []).length > 0;
@@ -546,7 +545,7 @@ export class GraphValidatorService {
     }
 
     if (endNodes.length === 1) {
-      const end = endNodes[0]!;
+      const end = endNodes[0];
       const indexed = nodeIndex.get(end.id);
       if (indexed?.nodeDef && indexed.paramsOk) {
         const hasIn = (indexed.nodeDef.execInputs ?? []).some(
@@ -651,7 +650,7 @@ function validatePinList(params: {
 
   const seen = new Set<string>();
   for (let i = 0; i < pins.length; i++) {
-    const pin = pins[i]!;
+    const pin = pins[i];
 
     if (!PIN_NAME_REGEX.test(pin.name)) {
       issues.push({

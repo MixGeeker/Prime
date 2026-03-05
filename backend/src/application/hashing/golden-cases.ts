@@ -57,7 +57,10 @@ function run() {
       },
     ],
     execEdges: [
-      { from: { nodeId: 'n_start', port: 'out' }, to: { nodeId: 'n_end', port: 'in' } },
+      {
+        from: { nodeId: 'n_start', port: 'out' },
+        to: { nodeId: 'n_end', port: 'in' },
+      },
     ],
     metadata: { editor: { x: 1 } },
     resolvers: { any: 'thing' },
@@ -99,7 +102,10 @@ function run() {
       },
     ],
     execEdges: [
-      { from: { nodeId: 'n_start', port: 'out' }, to: { nodeId: 'n_end', port: 'in' } },
+      {
+        from: { nodeId: 'n_start', port: 'out' },
+        to: { nodeId: 'n_end', port: 'in' },
+      },
     ],
     metadata: { different: true },
     resolvers: { different: true },
@@ -173,7 +179,11 @@ function run() {
     locals: [],
     nodes: [
       { id: 'n_start', nodeType: 'flow.start' },
-      { id: 'n_end', nodeType: 'flow.end', params: { dynamicInputs: [{ name: 'amount', valueType: 'Decimal' }] } },
+      {
+        id: 'n_end',
+        nodeType: 'flow.end',
+        params: { dynamicInputs: [{ name: 'amount', valueType: 'Decimal' }] },
+      },
     ],
     edges: [],
     execEdges: [],

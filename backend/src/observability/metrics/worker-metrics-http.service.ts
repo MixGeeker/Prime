@@ -30,7 +30,8 @@ export class WorkerMetricsHttpServerService
   ) {}
 
   async onModuleInit() {
-    const metricsEnabled = this.configService.get<boolean>('METRICS_ENABLED') ?? true;
+    const metricsEnabled =
+      this.configService.get<boolean>('METRICS_ENABLED') ?? true;
     if (!metricsEnabled) {
       return;
     }
@@ -98,7 +99,9 @@ export class WorkerMetricsHttpServerService
       }
       try {
         this.server?.close();
-      } catch {}
+      } catch {
+        // ignore: server may already be closed
+      }
       this.server = null;
       return;
     }

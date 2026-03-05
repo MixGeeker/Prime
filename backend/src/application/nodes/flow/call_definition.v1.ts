@@ -40,7 +40,14 @@ export const FLOW_CALL_DEFINITION_V1: NodeImplementation = {
               label: { type: 'string' },
               valueType: {
                 type: 'string',
-                enum: ['Decimal', 'Ratio', 'String', 'Boolean', 'DateTime', 'Json'],
+                enum: [
+                  'Decimal',
+                  'Ratio',
+                  'String',
+                  'Boolean',
+                  'DateTime',
+                  'Json',
+                ],
               },
               required: { type: 'boolean' },
               defaultValue: {},
@@ -58,7 +65,14 @@ export const FLOW_CALL_DEFINITION_V1: NodeImplementation = {
               label: { type: 'string' },
               valueType: {
                 type: 'string',
-                enum: ['Decimal', 'Ratio', 'String', 'Boolean', 'DateTime', 'Json'],
+                enum: [
+                  'Decimal',
+                  'Ratio',
+                  'String',
+                  'Boolean',
+                  'DateTime',
+                  'Json',
+                ],
               },
               rounding: {
                 type: 'object',
@@ -104,7 +118,7 @@ export const FLOW_CALL_DEFINITION_V1: NodeImplementation = {
 
     const callInputs: Record<string, unknown> = {};
     for (const pin of inputPins) {
-      const v = (inputs as any)[pin.name] as unknown;
+      const v = inputs[pin.name];
       if (v !== undefined) {
         callInputs[pin.name] = v;
       }

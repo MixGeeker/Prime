@@ -91,8 +91,11 @@ export class NodeCatalogService {
 
     if (node.nodeType === 'flow.call_definition') {
       const dynamicInputs = readDynamicPorts(node.params?.['calleeInputPins']);
-      const dynamicOutputs = readDynamicPorts(node.params?.['calleeOutputPins']);
-      if (dynamicInputs.length === 0 && dynamicOutputs.length === 0) return base;
+      const dynamicOutputs = readDynamicPorts(
+        node.params?.['calleeOutputPins'],
+      );
+      if (dynamicInputs.length === 0 && dynamicOutputs.length === 0)
+        return base;
 
       const inputNames = new Set(base.inputs.map((p) => p.name));
       const outputNames = new Set(base.outputs.map((p) => p.name));
@@ -201,9 +204,30 @@ function readDynamicPorts(value: unknown): NodePortDef[] {
     if (!isPlainObject(item)) continue;
     const name = item['name'];
     const valueType = item['valueType'];
-    if (typeof name !== 'string' || !name.trim()) continue;
-    if (typeof valueType !== 'string' || !valueType.trim()) continue;
-    ports.push({ name: name.trim(), valueType: valueType as any });
+    if (typeof name !== 'string') continue;
+    if (typeof valueType !== 'string') continue;
+
+    const trimmedName = name.trim();
+    if (!trimmedName) continue;
+
+    const trimmedValueType = valueType.trim();
+    if (!isValueType(trimmedValueType)) continue;
+
+    ports.push({ name: trimmedName, valueType: trimmedValueType });
   }
   return ports;
+}
+
+function isValueType(value: string): value is NodePortDef['valueType'] {
+  switch (value) {
+    case 'Decimal':
+    case 'Ratio':
+    case 'String':
+    case 'Boolean':
+    case 'DateTime':
+    case 'Json':
+      return true;
+    default:
+      return false;
+  }
 }

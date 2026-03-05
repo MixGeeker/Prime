@@ -89,13 +89,14 @@ export class GraphRunnerService implements RunnerPort {
     callDepth: number;
     maxCallDepth: number;
   }): RunnerRunResult {
-    const graph = params.content as unknown as GraphJsonV2;
-    if ((graph as any)?.schemaVersion !== 2) {
+    const schemaVersion = params.content['schemaVersion'];
+    if (schemaVersion !== 2) {
       throw new RunnerExecutionError(
         'RUNNER_DETERMINISTIC_ERROR',
-        `unsupported graph schemaVersion: ${String((graph as any)?.schemaVersion)}`,
+        `unsupported graph schemaVersion: ${String(schemaVersion)}`,
       );
     }
+    const graph = params.content as unknown as GraphJsonV2;
 
     const effectiveRunnerConfig = deepMerge(
       params.runnerConfig ?? {},
@@ -112,7 +113,11 @@ export class GraphRunnerService implements RunnerPort {
     }
 
     const runtimeInputs = canonicalizeRuntimeInputsOrThrow({
-      pins: readPinDefs((graph.nodes.find((n) => n.nodeType === 'flow.start')?.params as any)?.dynamicOutputs),
+      pins: readPinDefs(
+        graph.nodes.find((n) => n.nodeType === 'flow.start')?.params?.[
+          'dynamicOutputs'
+        ],
+      ),
       inputs: params.inputs,
     });
 
@@ -249,7 +254,7 @@ export class GraphRunnerService implements RunnerPort {
         `graph must contain exactly 1 flow.start node, got ${startNodes.length}`,
       );
     }
-    const startNode = startNodes[0]!;
+    const startNode = startNodes[0];
 
     const endNodes = graph.nodes.filter((n) => n.nodeType === 'flow.end');
     if (endNodes.length !== 1) {
@@ -258,7 +263,7 @@ export class GraphRunnerService implements RunnerPort {
         `graph must contain exactly 1 flow.end node, got ${endNodes.length}`,
       );
     }
-    const endNodeId = endNodes[0]!.id;
+    const endNodeId = endNodes[0].id;
 
     // 预先计算 start 的 value outputs（start 为 impure 节点，但没有 execInputs，不会被 while-loop 执行）
     const startDef = this.nodeCatalogService.getNodeDefForGraphNode(startNode);
@@ -462,11 +467,10 @@ export class GraphRunnerService implements RunnerPort {
       );
       if (!incomingEdge) {
         if (node.nodeType === 'flow.call_definition') {
-          const pins = readPinDefs((node.params as any)?.['calleeInputPins']);
+          const pins = readPinDefs(node.params?.['calleeInputPins']);
           const pin = pins.find((p) => p.name === inputPort.name) ?? null;
           const required = pin ? (pin.required ?? true) : true;
-          const hasDefault =
-            pin ? Object.prototype.hasOwnProperty.call(pin, 'defaultValue') : false;
+          const hasDefault = pin ? Object.hasOwn(pin, 'defaultValue') : false;
           if (!required || hasDefault) {
             continue;
           }
@@ -639,7 +643,7 @@ function buildOutputsFromEndNode(params: {
   inputValues: Record<string, unknown>;
   DecimalCtor: typeof Decimal;
 }): Record<string, unknown> {
-  const pins = readPinDefs((params.node.params as any)?.dynamicInputs);
+  const pins = readPinDefs(params.node.params?.['dynamicInputs']);
   const outputs: Record<string, unknown> = {};
 
   for (const pin of pins) {
@@ -807,12 +811,12 @@ function canonicalizeRuntimeInputsOrThrow(params: {
   const result: Record<string, unknown> = {};
   for (const pin of pins) {
     const required = pin.required ?? true;
-    const hasValue = Object.prototype.hasOwnProperty.call(inputs, pin.name);
+    const hasValue = Object.hasOwn(inputs, pin.name);
     const raw = hasValue ? inputs[pin.name] : undefined;
 
     let effective: unknown = raw;
     if (effective === undefined) {
-      if (Object.prototype.hasOwnProperty.call(pin, 'defaultValue')) {
+      if (Object.hasOwn(pin, 'defaultValue')) {
         effective = pin.defaultValue;
       } else {
         effective = null;

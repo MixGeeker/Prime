@@ -91,8 +91,12 @@ export class HashingService {
       };
     }
 
-    const pins = readPinDefs((startNodes[0]!.params as any)?.dynamicOutputs);
-    const inputsSnapshot = this.buildPinValuesSnapshot(pins, rawInputs, 'inputs');
+    const pins = readPinDefs(startNodes[0].params?.['dynamicOutputs']);
+    const inputsSnapshot = this.buildPinValuesSnapshot(
+      pins,
+      rawInputs,
+      'inputs',
+    );
     if (!inputsSnapshot.ok) {
       return inputsSnapshot;
     }
@@ -137,7 +141,7 @@ export class HashingService {
       };
     }
 
-    const pins = readPinDefs((endNodes[0]!.params as any)?.dynamicInputs);
+    const pins = readPinDefs(endNodes[0].params?.['dynamicInputs']);
     const sortedSpecs = [...pins].sort((a, b) => a.name.localeCompare(b.name));
     const canonicalizedOutputs: Record<string, unknown> = {};
 
@@ -257,7 +261,10 @@ export class HashingService {
         continue;
       }
 
-      const canonicalized = canonicalizeValueByType(pin.valueType, effectiveValue);
+      const canonicalized = canonicalizeValueByType(
+        pin.valueType,
+        effectiveValue,
+      );
       if (!canonicalized.ok) {
         return {
           ok: false,
@@ -375,7 +382,10 @@ function normalizePins(value: unknown): unknown {
         pin.defaultValue !== null &&
         pin.defaultValue !== undefined
       ) {
-        const canonicalized = canonicalizeValueByType(pin.valueType, pin.defaultValue);
+        const canonicalized = canonicalizeValueByType(
+          pin.valueType,
+          pin.defaultValue,
+        );
         if (canonicalized.ok) {
           return { ...pin, defaultValue: canonicalized.value };
         }

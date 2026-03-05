@@ -26,7 +26,14 @@ export const FLOW_END_V1: NodeImplementation = {
               label: { type: 'string' },
               valueType: {
                 type: 'string',
-                enum: ['Decimal', 'Ratio', 'String', 'Boolean', 'DateTime', 'Json'],
+                enum: [
+                  'Decimal',
+                  'Ratio',
+                  'String',
+                  'Boolean',
+                  'DateTime',
+                  'Json',
+                ],
               },
               required: { type: 'boolean' },
               defaultValue: {},
@@ -65,4 +72,3 @@ export const FLOW_END_V1: NodeImplementation = {
     return { kind: 'return' };
   },
 };
-

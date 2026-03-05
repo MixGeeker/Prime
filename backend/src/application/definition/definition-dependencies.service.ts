@@ -103,18 +103,22 @@ export class DefinitionDependenciesService {
       calleeGraph: GraphJsonV2,
     ): ValidationIssue[] => {
       const inputTypeByKey = new Map<string, PinDef['valueType']>();
-      const startNodes = calleeGraph.nodes.filter((n) => n.nodeType === 'flow.start');
+      const startNodes = calleeGraph.nodes.filter(
+        (n) => n.nodeType === 'flow.start',
+      );
       if (startNodes.length === 1) {
-        const pins = readPinDefs((startNodes[0]!.params as any)?.dynamicOutputs);
+        const pins = readPinDefs(startNodes[0].params?.['dynamicOutputs']);
         for (const pin of pins) {
           inputTypeByKey.set(pin.name, pin.valueType);
         }
       }
 
       const outputTypeByKey = new Map<string, PinDef['valueType']>();
-      const endNodes = calleeGraph.nodes.filter((n) => n.nodeType === 'flow.end');
+      const endNodes = calleeGraph.nodes.filter(
+        (n) => n.nodeType === 'flow.end',
+      );
       if (endNodes.length === 1) {
-        const pins = readPinDefs((endNodes[0]!.params as any)?.dynamicInputs);
+        const pins = readPinDefs(endNodes[0].params?.['dynamicInputs']);
         for (const pin of pins) {
           outputTypeByKey.set(pin.name, pin.valueType);
         }
@@ -124,7 +128,7 @@ export class DefinitionDependenciesService {
 
       const snapInput = new Map<string, PinDef['valueType']>();
       for (let i = 0; i < callNode.calleeInputPins.length; i++) {
-        const pin = callNode.calleeInputPins[i]!;
+        const pin = callNode.calleeInputPins[i];
         snapInput.set(pin.name, pin.valueType);
 
         const actual = inputTypeByKey.get(pin.name);
@@ -161,7 +165,7 @@ export class DefinitionDependenciesService {
 
       const snapOutput = new Map<string, PinDef['valueType']>();
       for (let i = 0; i < callNode.calleeOutputPins.length; i++) {
-        const pin = callNode.calleeOutputPins[i]!;
+        const pin = callNode.calleeOutputPins[i];
         snapOutput.set(pin.name, pin.valueType);
 
         const actual = outputTypeByKey.get(pin.name);
