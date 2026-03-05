@@ -146,3 +146,13 @@ node scripts/start.mjs --mode test --reset
 docker compose -f compose.dev.yaml down -v
 docker compose -f compose.test.yaml down -v
 ```
+
+---
+
+## 4) 下一步：集成文档（小白版）
+
+如果你已经把环境启动起来了，建议从“集成视角”继续往下读（面向 Editor/Provider 集成方，尽量不说黑话）：
+
+- 集成文档入口：[`integration/README.md`](integration/README.md)
+- 最快跑通一条链路：[`integration/01_QUICKSTART.md`](integration/01_QUICKSTART.md)
+- 看到错误不知道怎么修：[`integration/07_TROUBLESHOOTING.md`](integration/07_TROUBLESHOOTING.md)
