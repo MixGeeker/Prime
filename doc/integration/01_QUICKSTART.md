@@ -12,7 +12,7 @@
 
 1. 一键启动（Docker）
 2. 打开前端（Studio）发布一个 Definition（得到 `definitionHash`）
-3. 打开前端（Ops）触发一次 Provider job
+3. 使用 SDK 或业务模块触发一次 job
 4. 在 Jobs/结果里看到成功或失败的结果
 
 ## 前置准备（必须）
@@ -37,7 +37,6 @@ node .\scripts\start.mjs --mode test
 - Backend health：`http://localhost:4010/health`
 - Backend ready：`http://localhost:4010/ready`
 - Swagger：`http://localhost:4010/docs`
-- Provider Sim：`http://localhost:4020`
 - RabbitMQ 管理台：`http://localhost:15672`（账号/密码 `guest/guest`）
 
 查看所有容器日志（新开一个终端）：
@@ -94,17 +93,14 @@ node .\scripts\start.mjs --mode dev
 5. 点 **Validate（校验）**：确保没有红色错误
 6. 点 **Publish（发布）**：发布成功后会出现一个 hash（`definitionHash`）
 
-发布以后得到的 `definitionHash` 就像“这份图的指纹”。它不可变。以后 Provider 触发 job 时，必须指定这个 hash 才能保证跑的就是你发布的那一版。
+发布以后得到的 `definitionHash` 就像“这份图的指纹”。它不可变。以后 SDK / 业务模块触发 job 时，必须指定这个 hash 才能保证跑的就是你发布的那一版。
 
-## 第三步：用 Ops 触发一次 Provider job
+## 第三步：用 SDK / 业务模块触发一次 job
 
-1. 进入前端的 **Ops** 页面 → **Provider** 标签页
-2. 在 `definitionId` 下拉里选择你刚才发布的 Definition
-3. 在 `definitionHash` 下拉里选择版本（通常会自动选最新已发布版本）
-4. `inputs` 会自动生成一个模板（根据图的入口 pins）：
-   - 你只需要把具体值填进去
-   - 不认识的字段不要删，先保持结构
-5. 点击 **触发**
+1. 准备一个 SDK 调用或业务模块入口，填入刚发布的 `definitionId + definitionHash`
+2. 准备本次执行的 `inputs`
+3. 调用 SDK 发送 `compute.job.requested.v1`
+4. 记录返回的 `jobId`
 
 触发成功后你会得到一个 `jobId`（可以理解为“这次运行的单号”）。
 
@@ -112,7 +108,7 @@ node .\scripts\start.mjs --mode dev
 
 你可以用两种方式看结果：
 
-- **在前端看**：Ops → Jobs（或 Provider 页面里的列表）找到对应 `jobId`
+- **在前端看**：Ops → Jobs 找到对应 `jobId`
 - **在 MQ 看**：RabbitMQ 管理台里看队列是否有消费、是否有堆积（更偏运维）
 
 只要你能看到：
@@ -147,8 +143,9 @@ node .\scripts\start.mjs --mode dev
 先别慌，这通常是你填的 inputs 没满足入口 pins 的要求：
 
 - 回到 Studio，看 `flow.start` 的 pins（入口契约）
-- Provider 的 inputs **只会读取 start pins**，多余字段一般会被忽略，但缺字段会报错
+- SDK / 业务模块传入的 `inputs` **只会读取 start pins**，多余字段一般会被忽略，但缺字段会报错
 
 更完整的排障见：[`07_TROUBLESHOOTING.md`](07_TROUBLESHOOTING.md)。
+
 
 

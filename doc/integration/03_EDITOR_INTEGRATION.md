@@ -1,4 +1,4 @@
-# 03｜Editor 集成（你做自己的 Studio/管理台）
+﻿# 03｜Editor 集成（你做自己的 Studio/管理台）
 
 ## 这份文档适合谁
 
@@ -157,7 +157,7 @@ Dry-run 就是“我先试跑一次看看输出”，它不会落库、不会发
 ### 解释
 
 发布就是“把草稿盖章成不可变版本”。
-发布成功后你会得到 `definitionHash`，之后 Provider/运行时必须用它来触发执行。
+发布成功后你会得到 `definitionHash`，之后 SDK / 运行时必须用它来触发执行。
 
 ### 严格定义
 
@@ -224,4 +224,5 @@ main().catch((e) => {
 - Graph v2 规范：[`../GRAPH_SCHEMA.md`](../GRAPH_SCHEMA.md)
 - HTTP/MQ 协议：[`../API_DESIGN.md`](../API_DESIGN.md)
 - 类型系统：[`../VALUE_TYPES.md`](../VALUE_TYPES.md)
+
 

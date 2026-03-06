@@ -1,11 +1,11 @@
-# Compute Engine 后端执行文档（里程碑 / 任务 / 参考文档）
+﻿# Compute Engine 后端执行文档（里程碑 / 任务 / 参考文档）
 
 > 本文档是“怎么把文档落地成一个可上线的 Compute Engine 服务”的执行清单。
 > 重点是：里程碑拆解、每个里程碑的任务与验收标准，以及每项任务参考哪些设计文档。
 
 ## 0. 范围与假设
 
-- 范围：只覆盖 **Compute Engine 后端服务**（Provider/Editor 的实现不作为后端里程碑 DoD；但本仓库提供 `frontend/`、`sdk/` 与少量历史 Provider 示例作为参考实现与联调样例）。
+- 范围：只覆盖 **Compute Engine 后端服务**（SDK/Editor 的实现不作为后端里程碑 DoD；但本仓库提供 `frontend/`、`sdk/` 与业务样例作为参考实现与联调样例）。
 - 当前假设：单租户（不含 `tenantId`）。
 - 事件系统：默认 RabbitMQ（但内部通过 `MessageBusPort` 抽象，方便未来替换）。
 - 幂等键：以 `jobId` 为准（必须写死）。
@@ -40,7 +40,7 @@
 - M9：已完成（3/3）
 - M10：已完成（7/7）— 蓝图控制流重构（去版本号）
 
-### M0. 项目骨架与工程规围（可启动）
+### M0. 项目骨架与程程规围（可启动）
 
 **目标**
 - 服务能跑起来，有基础配置与目录结构，便于后续按 DDD+六边形扩展。
@@ -231,7 +231,7 @@
 **任务**
 - [x] 统一日志字段：关键链路带上 `jobId/messageId/correlationId/definitionRef`（便于对账与定位）
 - [x] 关键指标与告警建议：提供 `/metrics`（主要来自 worker 指标端），可基于 outbox backlog / job 失败率 / DLQ 堆积做告警
-- [x] DLQ 回放工具：Admin API（受开关+token 保护）回放 `compute.job.requested.v1.dlq`，复用 jobId 幂等
+- [x] DLQ 回放程具：Admin API（受开关+token 保护）回放 `compute.job.requested.v1.dlq`，复用 jobId 幂等
 - [x] 资源保护：`MQ_MAX_MESSAGE_BYTES`、DLQ 回放 `DLQ_REPLAY_MAX_LIMIT`、runnerConfig.limits（maxNodes/maxDepth/timeout）
 
 **验收标准（DoD）**
@@ -294,9 +294,9 @@
 
 ---
 
-## 3. 最小联调清单（和 Provider/Editor 对上）
+## 3. 最小联调清单（和 SDK/Editor 对上）
 
-- Provider 发 `compute.job.requested.v1`：
+- SDK / 业务模块发送 `compute.job.requested.v1`：
   - 必带 `jobId`，重试复用同 jobId
   - 必带 `definitionRef.definitionId + definitionRef.definitionHash`（不再使用 version）
   - 可选 `entrypointKey`（保留字段；Graph v2 默认忽略）
@@ -308,7 +308,7 @@
   - 若存在子蓝图调用：publish 时应冻结为 `definitionHash`（避免运行期“latest 漂移”）
 
 参考：
-- `PROVIDER_GUIDE.md`
+- `SDK_GUIDE.md`
 - `EDITOR_GUIDE.md`
 - `API_DESIGN.md`
 
@@ -347,3 +347,5 @@
 2. MQ 断开 30s 再恢复：consumer/dispatcher 自动恢复（无需重启进程）
 3. Worker 重启：重复投递同 jobId 不重复执行（幂等）
 4. Dispatcher 在 publish 后崩溃：允许重复事件；下游必须按 `messageId=outbox.id` 去重
+
+

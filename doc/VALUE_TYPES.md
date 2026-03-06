@@ -1,8 +1,8 @@
-# Compute Engine Value Types（类型系统）
+﻿# Compute Engine Value Types（类型系统）
 
 > 本文档定义 `valueType` 的标准：用于 Node Catalog、BlueprintGraph v2 的 `flow.start` 输入 pins / `locals` / `flow.end` 输出 pins 以及运行时校验。
 >
-> 目标：保证 Engine/Provider/Editor 之间对“值的语义与结构”有一致理解，从而支持：静态校验、确定性计算、可追溯与可回放。
+> 目标：保证 Engine/SDK/Editor 之间对“值的语义与结构”有一致理解，从而支持：静态校验、确定性计算、可追溯与可回放。
 
 ## 1. 设计原则
 - **值是数据，不是代码**：类型系统只约定“结构与语义”，不引入业务名词。
@@ -46,7 +46,7 @@ Decimal string（推荐语法）：
 ### 3.4 `DateTime`
 - 语义：时间点（用于 “as-of”/有效期等）。
 - JSON 表达：ISO8601 字符串（例如 `"2026-02-28T12:34:56Z"`）
-- 说明：引擎不做“当前时间”读取；时间必须由 Provider 注入为输入值。
+- 说明：引擎不做“当前时间”读取；时间必须由业务模块或 SDK 注入为输入值。
 
 ### 3.5 `Json`
 - 语义：任意 JSON 值（不做强校验）。
@@ -74,3 +74,4 @@ Decimal string（推荐语法）：
 
 > 注意：`Json` 类型不做 typed canonicalize；其 hash 稳定性仅由 JCS 保证。
 > 如果 `Json` 内嵌了 decimal，建议调用方把它们也做成 string，并提前 canonicalize，避免同语义不同写法导致 hash 漂移。
+

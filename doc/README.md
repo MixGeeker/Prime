@@ -1,4 +1,4 @@
-# 文档索引（doc/）
+﻿# 文档索引（doc/）
 
 本目录存放本仓库的设计与规范文档（从仓库根目录移动至此）。
 
@@ -10,5 +10,6 @@
 - 图/DSL Schema：`GRAPH_SCHEMA.md`
 - 值类型：`VALUE_TYPES.md`
 - Hash 规范：`HASHING_SPEC.md`
-- Provider 指南：`PROVIDER_GUIDE.md`
+- SDK 指南：`SDK_GUIDE.md`
 - Editor 指南：`EDITOR_GUIDE.md`
+

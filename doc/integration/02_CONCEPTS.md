@@ -4,7 +4,7 @@
 
 - 你已经能跑起来，但不知道“Definition / Release / hash / job”到底是什么。
 - 你要给同事做技术对齐，希望有一份 **不说黑话**的解释材料。
-- 你要做自己的 Editor 或 Provider，但想先把名词搞明白。
+- 你要做自己的 Editor 或 SDK 集成层，但想先把名词搞明白。
 
 ## 先给你一张“心智地图”（不看细节也能懂）
 
@@ -12,7 +12,7 @@
 
 1. **你在 Studio 里做一张“蓝图”**（它描述怎么计算，不做 IO）
 2. **你把蓝图发布** → 得到一个不可变版本（`definitionHash`）
-3. **Provider 负责收集业务数据** → 拼成 `inputs` → 投递一个 `job`
+3. **SDK / 业务模块负责收集业务数据** → 拼成 `inputs` → 投递一个 `job`
 4. **Engine 执行 job** → 发出 `succeeded/failed` 结果事件
 
 下面我们把每个词拆开讲。
@@ -260,5 +260,6 @@ Job 就是“请把这份配方跑一遍”。它包含：
 - SDK / 集成层只依赖：HTTP（查 definition/release 可选）+ MQ（投递 job、消费结果）
 
 下一篇从“怎么接 SDK”开始：[`04_SDK_INTEGRATION.md`](04_SDK_INTEGRATION.md)
+
 
 

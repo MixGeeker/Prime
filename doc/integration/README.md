@@ -1,8 +1,8 @@
-# 集成文档
+﻿# 集成文档
 
 这份目录是给 **第一次接触 Compute Engine 的集成方** 准备的。你不需要读完所有设计文档，只要按这里的步骤，就能把引擎接入到你们自己的系统里。
 
-> 重要说明：仓库里的 `frontend/` 是 **示例/参考实现**；默认集成方式是 `sdk/`，`providers/examples/provider-simulator/` 仅保留作历史迁移参考。
+> 重要说明：仓库里的 `frontend/` 是 **示例/参考实现**；默认集成方式是 `sdk/`。
 > - 你们可以完全自研 UI（甚至不用画布）
 > - 你们也可以直接在自己的业务模块里构建 `inputs`
 > - 但 **HTTP/MQ 协议、Graph v2 语义、hash 与幂等规则** 是必须遵守的
@@ -33,3 +33,5 @@
 - 类型系统权威：[`../VALUE_TYPES.md`](../VALUE_TYPES.md)
 - SDK 指南：[`../SDK_GUIDE.md`](../SDK_GUIDE.md)
 - Editor 指南：[`../EDITOR_GUIDE.md`](../EDITOR_GUIDE.md)
+
+

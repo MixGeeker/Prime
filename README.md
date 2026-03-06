@@ -1,8 +1,8 @@
-# 太一计算引擎（Prime Compute Engine）
+﻿# 太一计算引擎（Prime Compute Engine）
 
 > **太一**，取自中国传统哲学“太一生水、化生万物”之意——以一套可插拔的计算内核，驱动业务中千变万化的规则与数值推导。
 
-本仓库是 **太一计算引擎** 的单体仓库（monorepo）：把 **文档**、**后端服务**、**Definition Studio（前端/管理端）**、**Integration SDK** 与若干 **历史 Provider 示例** 放在一起演进与发布。
+本仓库是 **太一计算引擎** 的单体仓库（monorepo）：把 **文档**、**后端服务**、**Definition Studio（前端/管理端）**、**Integration SDK** 与 **业务样例** 放在一起演进与发布。
 
 ---
 
@@ -15,7 +15,7 @@
 - 计算过程不可视、不可审计，出了问题难以排查溯源；
 - 输入数据来源分散，系统间集成靠硬编码对接，耦合严重。
 
-**太一计算引擎**将计算逻辑从业务代码中抽离，提供一套统一的、**图驱动（Graph-based）的可插拔计算平台**，让业务规则的定义、执行与审计形成闭环。
+**太一计算引擎** 将计算逻辑从业务代码中抽离，提供一套统一的、**图驱动（Graph-based）** 的可插拔计算平台，让业务规则的定义、执行与审计形成闭环。
 
 ---
 
@@ -27,7 +27,7 @@
 | **可维护性** | 计算图可视化，逻辑一目了然，告别“黑盒计算” |
 | **可复用性** | 一套引擎服务多条业务线，避免重复造轮子 |
 | **可审计性** | 每次计算留有完整的输入快照与结果记录，合规可溯源 |
-| **可扩展性** | 通过 SDK 与模块化 inputs builder 解耦集成与纯计算 |
+| **可扩展性** | 通过 SDK 与标准协议解耦集成层，任意业务系统均可接入 |
 | **稳定性** | 基于事件驱动（RabbitMQ）异步执行，峰值流量下不阻塞主链路 |
 
 ---
@@ -43,7 +43,7 @@ node scripts/start.mjs
 ```
 
 脚本会引导你选择：
-- **开发模式（dev）**：仅启动依赖（PostgreSQL + RabbitMQ），其余在本机跑；
+- **开发模式（dev）**：仅启动依赖（PostgreSQL + RabbitMQ），本地跑后端；
 - **测试模式（test）**：全 Docker 启动（依赖 + backend + worker + frontend）。
 
 完整步骤见：`doc/GETTING_STARTED.md`
@@ -65,15 +65,14 @@ npm run start:dev
 ### 3. 端到端完整体验
 
 1. 启动后端 HTTP + Worker（见 `backend/README.md`）；
-2. 启动前端 Studio：`frontend/`；
-3. 使用 SDK 或业务模块发送 `compute.job.requested.v1`；
-4. 在 Ops 查看 jobs / outbox / DLQ。
+2. 使用 `sdk/` 或你自己的业务模块构建 flat `inputs` 并投递 job；
+3. 启动前端 Studio：`frontend/`。
 
-> 完整链路：SDK / 业务模块投递 `compute.job.requested.v1` → Worker 执行计算图 → Outbox 发布结果事件 → 业务模块消费 `job.succeeded/failed`。
+> 完整链路：业务模块 / SDK 投递 `compute.job.requested.v1` → Worker 执行计算图 → Outbox 发布结果事件 → 业务模块消费 `compute.job.succeeded/failed`。
 
 ### 4. 接入自己的业务系统（集成方）
 
-参考 `doc/integration/README.md` 与 `sdk/README.md`，按 flat `inputs` 契约实现一个 **集成 SDK / 模块化 inputs builder**，即可将太一计算引擎嵌入你的业务流程。
+参考 `doc/integration/README.md` 与 `doc/SDK_GUIDE.md`，按照规范构建 `inputs` 并使用 SDK 投递 job，即可将太一计算引擎嵌入你的业务流程。
 
 ---
 
@@ -83,9 +82,9 @@ npm run start:dev
 .
 ├── backend/        # 计算引擎后端（NestJS + TypeORM）
 ├── frontend/       # Studio 编辑器 + Ops 仪表盘（Vue3 + Element Plus + Rete）
-├── sdk/            # Integration SDK（inputs builder + sendJob + results consumer）
-├── providers/      # 历史 Provider 规范 + 示例（迁移参考，非默认方案）
-└── doc/            # 设计 / 规范文档（见下方“文档索引”）
+├── sdk/            # SDK（inputs builder + sendJob + results consumer）
+├── examples/       # 业务样例（tax-discount 等）
+└── doc/            # 设计 / 规范文档
 ```
 
 ---
@@ -103,9 +102,7 @@ npm run start:dev
 | `doc/VALUE_TYPES.md` | 值类型规范 |
 | `doc/HASHING_SPEC.md` | Hash 规范 |
 | `doc/SDK_GUIDE.md` | SDK 集成指南 |
-| `doc/PROVIDER_GUIDE.md` | Provider 迁移说明（历史文件） |
 | `doc/EDITOR_GUIDE.md` | Editor 使用指南 |
-| `sdk/README.md` | SDK 代码级快速上手 |
 
 ---
 

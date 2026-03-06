@@ -1,4 +1,4 @@
-# Studio（示例编辑器）设计说明
+﻿# Studio（示例编辑器）设计说明
 
 > 目标：提供一个“可运行的参考实现”，对齐 Compute Engine 的契约与关键 UX，而不是替代业务方的生产 Editor。
 
@@ -28,4 +28,5 @@
 ## 5. 输入契约
 - 输入契约来自 `flow.start.params.dynamicOutputs`
 - 输出契约来自 `flow.end.params.dynamicInputs`
-- 编辑器不再依赖 Provider Template / Inputs Catalog 生成 pins，统一在图中直接声明
+- 编辑器不再依赖 外部模板 / Inputs Catalog 生成 pins，统一在图中直接声明
+

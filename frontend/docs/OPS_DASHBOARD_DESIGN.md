@@ -1,4 +1,4 @@
-# Ops（示例仪表盘）设计说明
+﻿# Ops（示例仪表盘）设计说明
 
 > 目标：提供一个“可跑起来的运维面板样例”，覆盖 definitions/jobs/outbox/DLQ 的核心观测与操作。
 
@@ -15,4 +15,5 @@
 ## 3. 当前定位
 - Ops 只展示 **Compute Engine 侧** 的状态与危险运维操作
 - Job 的发送、结果回写、业务闭环由 SDK / 业务模块负责
-- 前端不再对接 Provider Simulator，也不再维护独立 Provider 视图
+- 前端只聚焦 Compute Engine 侧状态，不再维护额外的集成层视图
+

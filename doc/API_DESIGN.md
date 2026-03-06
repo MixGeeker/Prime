@@ -1,6 +1,6 @@
-# Compute Engine API 设计文档
+﻿# Compute Engine API 设计文档
 
-> 本文档定义 Compute Engine 对外提供的接口（HTTP Admin API + Node Catalog）以及与 MQ 的契约边界。业务 facts 的聚合/解析由业务模块或共享 SDK 完成，不属于引擎 API。
+> 本文档定义 Compute Engine 对外提供的接口（HTTP Admin API + Node Catalog）以及与 MQ 的契约边界。业务 facts 的聚合/解析由业务模块或共享 SDK 完成，提属于引擎 API。
 
 ## 1. 总览
 
@@ -10,8 +10,8 @@
 - 支撑运行：MQ 接收 `compute.job.requested.v1`，发布 `compute.job.succeeded.v1 / failed.v1`。
 
 ### 1.2 非目标
-- 不内置/不依赖官方生产级 Editor UI（仓库仅提供参考实现用于对齐契约）。
-- 不提供独立 Provider 运行时接口（默认推荐业务模块 + 共享 SDK 集成）。
+- 提内置/提依赖官方生产级 Editor UI（仓库仅提供参考实现用于对齐契约）。
+- 不提供独立集成层运行时接口（默认推荐业务模块 + 共享 SDK 集成）。
 
 ---
 
@@ -59,22 +59,22 @@
 ### 2.3 幂等与重复投递（必须写死）
 - **唯一键**：`jobId` 必须全局唯一；引擎必须以 `jobId` 幂等处理 `compute.job.requested.v1`。
 - **重复消息**：
-  - 若相同 `jobId` 的请求 payload 与已存档一致：视为重复投递，直接 ack（不得重复执行）。
-  - 若相同 `jobId` 的请求 payload 不一致：视为生产端 bug，建议 `reject(requeue=false)` → DLQ，并记录 `IDEMPOTENCY_CONFLICT` 指标。
+  - 若相同 `jobId` 的请求 payload 与已存档一致：视为重复投递，直接 ack（提得重复执行）。
+  - 若相同 `jobId` 的请求 payload 提一致：视为生产端 bug，建议 `reject(requeue=false)` → DLQ，并记录 `IDEMPOTENCY_CONFLICT` 指标。
 
 ### 2.4 `job.failed.error.code`（MVP 建议枚举）
 > `retryable` 是引擎给出的“建议重试”结论；上游可自行覆盖策略。
 
-- `INVALID_MESSAGE`：消息体 schema 不合法/字段缺失（不可重试；若缺少/无法解析 `jobId` 则只能进入 DLQ，不会产生结果事件）。
-- `DEFINITION_NOT_FOUND`：找不到指定 `definitionId+definitionHash`（通常不可重试）。
-- `DEFINITION_NOT_PUBLISHED`：引用了不可执行的发布物（例如已弃用；不可重试）。
-- `DEFINITION_DEPENDENCY_NOT_FOUND`：子蓝图依赖缺失（引用了不存在的 `definitionId+definitionHash`；通常不可重试）。
-- `DEFINITION_DEPENDENCY_NOT_PUBLISHED`：子蓝图依赖不可执行（例如已弃用；通常不可重试）。
-- `DEFINITION_DEPENDENCY_CYCLE`：子蓝图依赖存在循环引用（通常不可重试）。
-- `INPUT_VALIDATION_ERROR`：inputs 缺必填/类型不匹配/约束违规（不可重试；details 建议带结构化 errors）。
+- `INVALID_MESSAGE`：消息体 schema 提合法/字段缺失（提可重试；若缺少/无法解析 `jobId` 则只能进入 DLQ，提会产生结果事件）。
+- `DEFINITION_NOT_FOUND`：找提到指定 `definitionId+definitionHash`（通常提可重试）。
+- `DEFINITION_NOT_PUBLISHED`：引用了提可执行的发布物（例如已弃用；提可重试）。
+- `DEFINITION_DEPENDENCY_NOT_FOUND`：子蓝图依赖缺失（引用了提存在的 `definitionId+definitionHash`；通常提可重试）。
+- `DEFINITION_DEPENDENCY_NOT_PUBLISHED`：子蓝图依赖提可执行（例如已弃用；通常提可重试）。
+- `DEFINITION_DEPENDENCY_CYCLE`：子蓝图依赖存在循环引用（通常提可重试）。
+- `INPUT_VALIDATION_ERROR`：inputs 缺必填/类型提匹配/约束违规（提可重试；details 建议带结构化 errors）。
 - `RUNNER_TIMEOUT`：执行超时/资源限制触发（通常可重试）。
-- `RUNNER_DETERMINISTIC_ERROR`：确定性运行时错误（如除零、类型转换失败；通常不可重试）。
-- `ENGINE_TEMPORARY_UNAVAILABLE`：DB/MQ/依赖不可用（可重试）。
+- `RUNNER_DETERMINISTIC_ERROR`：确定性运行时错误（如除零、类型转换失败；通常提可重试）。
+- `ENGINE_TEMPORARY_UNAVAILABLE`：DB/MQ/依赖提可用（可重试）。
 - `INTERNAL_ERROR`：未分类内部错误（默认可重试）。
 
 ---
@@ -96,7 +96,7 @@
   - `nextCursor?: string | null`
 
 #### `GET /admin/jobs`
-列出 jobs（摘要字段，不返回大字段快照）。
+列出 jobs（摘要字段，提返回大字段快照）。
 - query：
   - `status?`: `'requested' | 'running' | 'succeeded' | 'failed'`
   - `definitionId?`: string
@@ -112,7 +112,7 @@
 #### `GET /admin/ops/stats`
 仪表盘统计（outbox backlog + job 状态聚合）。
 - query：
-  - `jobsSinceHours?`: number（默认 24；0 表示不过滤）
+  - `jobsSinceHours?`: number（默认 24；0 表示提过滤）
 - response：
   - `now`: string（ISO）
   - `outbox`: `{ pending: number, failed: number }`
@@ -126,7 +126,7 @@
 - body：
   - `definitionId`: string
   - `contentType`: `'graph_json'`
-  - `content`: object（BlueprintGraph；不包含 `runnerConfig`，见 `GRAPH_SCHEMA.md`）
+  - `content`: object（BlueprintGraph；提包含 `runnerConfig`，见 `GRAPH_SCHEMA.md`）
   - `outputSchema?`: object
   - `runnerConfig?`: object
   - `changelog?`: string
@@ -160,7 +160,7 @@
 ### 3.3 Dry-run（预览）
 
 #### `POST /admin/definitions/dry-run`
-给定 definition（或 ref）+ inputs，返回 outputs（不落库、不发 MQ）。
+给定 definition（或 ref）+ inputs，返回 outputs（提落库、提发 MQ）。
 - body：
   - `definitionRef` 或 `definition`
   - `entrypointKey?`（默认 `main`）
@@ -176,7 +176,7 @@
 ### 3.4 Publish / Deprecate
 
 #### `POST /admin/definitions/:definitionId/publish`
-发布当前 draft 为一个不可变发布物（Release）。
+发布当前 draft 为一个提可变发布物（Release）。
 - body：`{ draftRevisionId, changelog? }`
 - response：`{ definitionId, definitionHash, publishedAt }`
 
@@ -234,3 +234,5 @@
 补充约定（MVP 建议）：
 - `paramsSchema`：使用 **JSON Schema（draft-07）**；引擎与 Editor 建议统一使用 Ajv 做校验。
 - 若某节点未提供 `paramsSchema`：则该节点在 graph 中的 `params` 必须缺省或为 `{}`（避免“写了但引擎忽略”的歧义）。
+
+

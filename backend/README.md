@@ -1,4 +1,4 @@
-# Compute Engine Backend（计算引擎后端）
+﻿# Compute Engine Backend（计算引擎后端）
 
 本服务是 **Compute Engine** 的后端实现：提供 **Definition 管理（draft/publish）**、**BlueprintGraph 校验/预览（dry-run）**、以及 **MQ 执行链路（幂等 + Outbox 可靠发布结果事件）**。
 
@@ -135,7 +135,7 @@ Editor 只需要对接 HTTP Admin API + Node Catalog：
 5. `POST /admin/definitions/dry-run` 预览计算（不落库、不发 MQ）
 6. `POST /admin/definitions/:definitionId/publish` 发布为 release（拿到 `definitionHash`）
 
-### 2) Provider / 业务服务（投递 job）对接
+### 2) SDK / 业务服务（投递 job）对接
 
 向 RabbitMQ 投递 `compute.job.requested.v1`（routingKey 同名），关键约束：
 
@@ -166,3 +166,4 @@ Editor 只需要对接 HTTP Admin API + Node Catalog：
 - Show：`npm run migration:show`
 - Run：`npm run migration:run`
 - Revert：`npm run migration:revert`
+

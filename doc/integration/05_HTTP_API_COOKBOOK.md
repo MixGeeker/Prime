@@ -1,4 +1,4 @@
-# 05｜HTTP Admin API 食谱（PowerShell + curl 可复制）
+﻿# 05｜HTTP Admin API 食谱（PowerShell + curl 可复制）
 
 ## 这份文档适合谁
 
@@ -54,7 +54,7 @@ curl.exe -sS "http://localhost:4010/admin/definitions?q=%E6%B5%8B&limit=50"
 
 ### 解释
 
-Provider 触发执行时必须给 `definitionHash`。
+SDK / 业务模块触发执行时必须给 `definitionHash`。
 最常见需求是“选最新发布版本”。
 
 ### PowerShell（取最新 published）
@@ -80,7 +80,7 @@ $latest.definitionHash
 这通常用于：
 
 - Editor 做 diff/回放
-- Provider/工具生成 inputs 模板（读取 `flow.start` pins）
+- SDK / 工具生成 inputs 模板（读取 `flow.start` pins）
 
 ### PowerShell
 
@@ -186,7 +186,7 @@ curl.exe -sS -X POST "http://localhost:4010/admin/definitions/dry-run" -H "Conte
 
 ## 6) 我想创建/更新 draft（给 Editor 保存）
 
-> 如果你只是集成 Provider，不需要这一段。它主要给 Editor 端使用。
+> 如果你只是集成 SDK / 业务模块，不需要这一段。它主要给 Editor 端使用。
 
 ### A. 创建 draft：`POST /admin/definitions`
 
@@ -293,4 +293,5 @@ Invoke-RestMethod "$base/admin/jobs/$jobId" -Method Get
 - `DEFINITION_NOT_FOUND`：definitionId 不存在或拼错。
 - `DEFINITION_NOT_PUBLISHED`：你引用了一个没发布/已弃用的 hash。
 - `INPUT_VALIDATION_ERROR`：inputs 缺字段或类型不对（回到 `flow.start` pins 看契约）。
+
 

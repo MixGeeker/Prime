@@ -1,4 +1,4 @@
-# 可插拔 Compute Engine（Definition + Job + Result）设计文档（Outbox + RabbitMQ）
+﻿# 可插拔 Compute Engine（Definition + Job + Result）设计文档（Outbox + RabbitMQ）
 
 > 本文档将“Compute Engine”定位为**平台级微服务**（单租户当前假设），不内置任何业务计算名称、业务事件、业务实体（Product/Order/POS 等）。
 >
@@ -327,4 +327,5 @@ MVP 约束建议：
 3. RabbitMQ Job 链路（consumer + publisher confirm + Outbox/Inbox + `job.succeeded/failed`）。
 4. SDK 集成规范与参考实现（Graph v2：单一 `inputs` object + start pins 契约 + canonicalize 规则 + 多余字段策略）。
 5. Editor 后端标准（Definition Admin API + validate + dry-run + OpenAPI/Schema），供集成方自定义 UI。
-6. 一个业务集成样板：Provider 注入 `inputs` → 发 `job.requested` → 收结果事件并落读模型（含 Inbox 幂等）。
+6. 一个业务集成样板：业务模块 / SDK 注入 `inputs` → 发 `job.requested` → 收结果事件并落读模型（含 Inbox 幂等）。
+
