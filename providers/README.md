@@ -1,14 +1,19 @@
-# Compute Inputs Provider（规范 + 示例）
+# Integration SDK（迁移说明）
 
-Compute Inputs Provider 的定位：**负责所有 IO（DB/HTTP/gRPC）**，聚合并注入 `inputs`（单一 object；key 对齐蓝图 `flow.start` pins），Compute Engine 仅做 **校验/规范化/hash/纯计算执行**。
+`providers/` 目录保留为**历史迁移区**：
 
-参考文档：
-- `../doc/PROVIDER_GUIDE.md`
-- `../doc/COMPUTE_ENGINE_DESIGN.md`
+- 这里的内容用于解释过去如何用 Provider 组织 inputs / 投递 MQ
+- 现在的默认集成方式已经改为 `sdk/`
+- 新项目不再推荐创建独立 Provider 服务，优先使用共享 SDK / 模块化 inputs builder
 
-## 示例
+## 当前建议
 
-- `./examples/basic-node/`：最小示例（仅演示 inputs 结构与投递 job 的约定）
-- `./examples/provider-simulator/`：**可运行示例服务**（管理 facts、投递 job、订阅结果事件）
-- `./examples/tax-discount/`：业务样例蓝图（税费 + 折扣）
+- **发送端**：业务模块读取事实数据并构建 flat `inputs`
+- **集成层**：通过 `sdk/` 发送 `compute.job.requested.v1`
+- **结果端**：业务模块消费 `compute.job.succeeded.v1 / failed.v1`
 
+## 历史目录
+
+- `./examples/basic-node/`：最小历史占位示例，现已由 `sdk/` 取代
+- `./examples/provider-simulator/`：旧的独立 Provider 服务参考实现，仅供迁移参考
+- `./examples/tax-discount/`：业务样例蓝图

@@ -1,4 +1,4 @@
-# 02｜核心概念
+﻿# 02｜核心概念
 
 ## 这份文档适合谁
 
@@ -171,7 +171,7 @@ Job 就是“请把这份配方跑一遍”。它包含：
   },
   "inputs": {
     "basePrice": "100",
-    "_meta": { "provider": "my-provider", "requestedAt": "2026-03-04T23:44:42.266Z" }
+    "_meta": { "source": "pricing-sdk", "requestedAt": "2026-03-04T23:44:42.266Z" }
   },
   "options": {}
 }
@@ -189,7 +189,7 @@ Job 就是“请把这份配方跑一遍”。它包含：
 ### 严格定义
 
 - `jobId` 是引擎侧的幂等主键（同一个 `jobId` 再投递通常会被拒绝/复用结果，取决于实现策略）。
-- 推荐：由 Provider 用 UUID 生成；或用“业务主键 + 版本 + 时间窗口”稳定生成（只要能保证不冲突、可复用即可）。
+- 推荐：由 SDK 或业务模块用 UUID 生成；或用“业务主键 + 版本 + 时间窗口”稳定生成（只要能保证不冲突、可复用即可）。
 
 ### 常见误解
 
@@ -243,11 +243,11 @@ Job 就是“请把这份配方跑一遍”。它包含：
 
 ---
 
-## Provider（集成方的运行时适配层）
+## SDK / 集成层（业务模块的运行时适配层）
 
 ### 解释
 
-Provider 就是“翻译官/适配器”：
+现在默认由 SDK / 业务模块扮演“翻译官/适配器”：
 
 - 从你们系统拿到业务数据
 - 按 `flow.start` 的 pins 把数据拼成 `inputs`
@@ -256,8 +256,9 @@ Provider 就是“翻译官/适配器”：
 
 ### 严格定义
 
-- Provider **不需要懂图怎么跑**，只要懂输入/输出契约、幂等与去重即可。
-- Provider 只依赖：HTTP（查 definition/release 可选）+ MQ（投递 job、消费结果）
+- SDK / 集成层 **不需要懂图怎么跑**，只要懂输入/输出契约、幂等与去重即可。
+- SDK / 集成层只依赖：HTTP（查 definition/release 可选）+ MQ（投递 job、消费结果）
 
-下一篇从“怎么接 Provider”开始：[`04_PROVIDER_INTEGRATION.md`](04_PROVIDER_INTEGRATION.md)
+下一篇从“怎么接 SDK”开始：[`04_SDK_INTEGRATION.md`](04_SDK_INTEGRATION.md)
+
 

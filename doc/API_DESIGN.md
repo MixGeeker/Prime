@@ -1,6 +1,6 @@
 # Compute Engine API 设计文档
 
-> 本文档定义 Compute Engine 对外提供的接口（HTTP Admin API + Node Catalog）以及与 MQ 的契约边界。业务 facts 的聚合/解析由 Inputs Provider 负责，不属于引擎 API。
+> 本文档定义 Compute Engine 对外提供的接口（HTTP Admin API + Node Catalog）以及与 MQ 的契约边界。业务 facts 的聚合/解析由业务模块或共享 SDK 完成，不属于引擎 API。
 
 ## 1. 总览
 
@@ -11,7 +11,7 @@
 
 ### 1.2 非目标
 - 不内置/不依赖官方生产级 Editor UI（仓库仅提供参考实现用于对齐契约）。
-- 不提供 Inputs Provider 的运行时接口（Provider 是集成方实现）。
+- 不提供独立 Provider 运行时接口（默认推荐业务模块 + 共享 SDK 集成）。
 
 ---
 

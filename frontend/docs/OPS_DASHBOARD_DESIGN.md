@@ -10,12 +10,9 @@
 
 ## 2. 危险端点策略
 - DLQ replay 默认禁用：需要后端启用 `ADMIN_DANGEROUS_ENDPOINTS_ENABLED=true`
-- UI 需要在 “设置” 中配置 Admin Token，并以 `Authorization: Bearer <token>` 发送
+- UI 需要在“设置”中配置 Admin Token，并以 `Authorization: Bearer <token>` 发送
 
-## 3. Provider Simulator 联调
-- Provider Simulator 用于演示端到端：
-  - 管理 `inputs.globals`（全局 facts）
-  - 触发 `compute.job.requested.v1`（MQ）
-  - 订阅 `compute.job.succeeded/failed.v1` 并展示结果
-- 前端通过 `VITE_PROVIDER_SIMULATOR_BASE_URL` 对接（默认 `http://localhost:4020`）
-
+## 3. 当前定位
+- Ops 只展示 **Compute Engine 侧** 的状态与危险运维操作
+- Job 的发送、结果回写、业务闭环由 SDK / 业务模块负责
+- 前端不再对接 Provider Simulator，也不再维护独立 Provider 视图

@@ -3,7 +3,7 @@
 本仓库提供两种启动模式：
 
 - **开发模式（dev）**：仅用 Docker 启动依赖（PostgreSQL + RabbitMQ），其余服务在本机用 `npm` 启动，方便调试与热更新。
-- **测试模式（test）**：全 Docker 启动（依赖 + backend + worker + provider-simulator + frontend），适合演示/联调/集成测试环境。
+- **测试模式（test）**：全 Docker 启动（依赖 + backend + worker + frontend），适合演示/联调/集成测试环境。
 
 > 推荐统一入口：`node scripts/start.mjs`（会询问你选择 dev/test）。
 
@@ -57,13 +57,13 @@ npm run start:worker
 
 > 提示：本机多 worker 容易 metrics 端口冲突；默认 `backend/.env.example` 里关闭了 `WORKER_METRICS_ENABLED`。如需查看 worker 指标，设置 `WORKER_METRICS_ENABLED=true` 并为不同进程分配不同 `WORKER_METRICS_PORT`，访问 `http://localhost:<WORKER_METRICS_PORT>/metrics`。
 
-### 1.4 启动 Provider Simulator
+### 1.4 启动 SDK 示例（可选）
 
 ```bash
-cd providers/examples/provider-simulator
+cd sdk
 npm ci
-cp .env.example .env
-npm run dev
+npm run build
+# 参考 sdk/README.md 与 sdk/examples/full-chain-demo.ts
 ```
 
 ### 1.5 启动前端（Studio + Ops）
@@ -151,7 +151,7 @@ docker compose -f compose.test.yaml down -v
 
 ## 4) 下一步：集成文档
 
-如果你已经把环境启动起来了，建议从“集成视角”继续往下读（面向 Editor/Provider 集成方）：
+如果你已经把环境启动起来了，建议从“集成视角”继续往下读（面向 Editor/SDK 集成方）：
 
 - 集成文档入口：[`integration/README.md`](integration/README.md)
 - 最快跑通一条链路：[`integration/01_QUICKSTART.md`](integration/01_QUICKSTART.md)

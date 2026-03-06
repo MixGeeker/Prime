@@ -109,7 +109,6 @@ function bumpMappedPort(composeEnv, port) {
     { envKey: 'RABBITMQ_PORT', min: 5672, max: 5690 },
     { envKey: 'RABBITMQ_MANAGEMENT_PORT', min: 15672, max: 15690 },
     { envKey: 'BACKEND_HTTP_PORT', min: 4010, max: 4050 },
-    { envKey: 'PROVIDER_SIMULATOR_PORT', min: 4020, max: 4060 },
     { envKey: 'FRONTEND_PORT', min: 5173, max: 5190 },
   ];
 
@@ -130,7 +129,7 @@ async function promptMode() {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
     // eslint-disable-next-line no-console
-    console.log('\n请选择启动模式：\n  1) 开发模式（dev）：仅启动依赖(Postgres/RabbitMQ)，其余在本机跑\n  2) 测试模式（test）：全 Docker 启动（依赖+后端+worker+provider+前端）');
+    console.log('\n请选择启动模式：\n  1) 开发模式（dev）：仅启动依赖(Postgres/RabbitMQ)，其余在本机跑\n  2) 测试模式（test）：全 Docker 启动（依赖+后端+worker+前端）');
     const ans = (await rl.question('请输入 1/2/dev/test（默认 1）：')).trim().toLowerCase();
     if (ans === '2' || ans === 'test') return 'test';
     return 'dev';
@@ -172,11 +171,11 @@ function printDevNextSteps({ postgresPort, rabbitmqPort, rabbitmqManagementPort 
    cd backend
    npm run start:worker
 
-3) Provider Simulator：
-   cd providers/examples/provider-simulator
+3) SDK（可选示例）：
+   cd sdk
    npm ci
-   cp .env.example .env
-   npm run dev
+   npm run build
+   # 参考 sdk/README.md 与 sdk/examples/full-chain-demo.ts 发送 job
 
 4) 前端（Studio + Ops）：
    cd frontend
@@ -194,19 +193,17 @@ function printDevNextSteps({ postgresPort, rabbitmqPort, rabbitmqManagementPort 
 
 function printTestNextSteps({
   backendHttpPort,
-  providerSimulatorPort,
   frontendPort,
   rabbitmqManagementPort,
 }) {
   // eslint-disable-next-line no-console
   console.log(`
-\n测试模式（test）已全 Docker 启动完成（依赖 + backend + worker + provider + frontend）。
+\n测试模式（test）已全 Docker 启动完成（依赖 + backend + worker + frontend）。
 \n常用地址：
 - Frontend:       http://localhost:${frontendPort}
 - Backend health: http://localhost:${backendHttpPort}/health
 - Backend ready:  http://localhost:${backendHttpPort}/ready
 - Swagger UI:     http://localhost:${backendHttpPort}/docs
-- Provider Sim:   http://localhost:${providerSimulatorPort}
 - RabbitMQ UI:    http://localhost:${rabbitmqManagementPort} (guest/guest)
 
 查看日志：
@@ -255,9 +252,6 @@ Prime Engine 启动脚本
 
   const backendHttpPort =
     (await pickAvailablePort(Number(process.env.BACKEND_HTTP_PORT ?? 4010), { maxPort: 4050 })) ?? 4010;
-  const providerSimulatorPort =
-    (await pickAvailablePort(Number(process.env.PROVIDER_SIMULATOR_PORT ?? 4020), { maxPort: 4060 })) ??
-    4020;
   const frontendPort =
     (await pickAvailablePort(Number(process.env.FRONTEND_PORT ?? 5173), { maxPort: 5190 })) ?? 5173;
 
@@ -265,7 +259,6 @@ Prime Engine 启动脚本
   composeEnv.RABBITMQ_PORT = String(rabbitmqPort);
   composeEnv.RABBITMQ_MANAGEMENT_PORT = String(rabbitmqManagementPort);
   composeEnv.BACKEND_HTTP_PORT = String(backendHttpPort);
-  composeEnv.PROVIDER_SIMULATOR_PORT = String(providerSimulatorPort);
   composeEnv.FRONTEND_PORT = String(frontendPort);
 
   if (args.down) {
@@ -310,7 +303,6 @@ Prime Engine 启动脚本
   } else {
     printTestNextSteps({
       backendHttpPort: Number(composeEnv.BACKEND_HTTP_PORT),
-      providerSimulatorPort: Number(composeEnv.PROVIDER_SIMULATOR_PORT),
       frontendPort: Number(composeEnv.FRONTEND_PORT),
       rabbitmqManagementPort: Number(composeEnv.RABBITMQ_MANAGEMENT_PORT),
     });

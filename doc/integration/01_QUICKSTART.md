@@ -1,4 +1,4 @@
-# 01｜快速跑通（从 0 到看到一次结果）
+﻿# 01｜快速跑通（从 0 到看到一次结果）
 
 ## 这份文档适合谁
 
@@ -60,7 +60,7 @@ node .\scripts\start.mjs --mode test --reset
 
 ## 方式 B：开发模式 dev（只起依赖，其余本机跑）
 
-如果你要改代码、调试，dev 模式更合适。它只启动 PostgreSQL + RabbitMQ，然后你在本机分别启动 backend/worker/provider/frontend。
+如果你要改代码、调试，dev 模式更合适。它只启动 PostgreSQL + RabbitMQ，然后你在本机分别启动 backend/worker/frontend（可选再启动 sdk demo）。
 
 启动依赖：
 
@@ -127,11 +127,11 @@ node .\scripts\start.mjs --mode dev
 
 ### 1) 页面能开，但触发后一直没结果
 
-通常是 worker/provider 没跑或 MQ 没连上：
+通常是 worker 或结果消费端没跑，或者 MQ 没连上：
 
 - 打开 `http://localhost:15672` 看 RabbitMQ 是否正常
 - 看 worker 日志里是否有消费 `compute.job.requested.v1`
-- 看 provider 是否在消费 `compute.job.succeeded.v1` / `compute.job.failed.v1`
+- 看你的 SDK 结果消费端（或业务模块）是否在消费 `compute.job.succeeded.v1` / `compute.job.failed.v1`
 
 ### 2) 报 `GRAPH_SCHEMA_INVALID` 且提到 `globals/entrypoints/outputs`
 
@@ -150,4 +150,5 @@ node .\scripts\start.mjs --mode dev
 - Provider 的 inputs **只会读取 start pins**，多余字段一般会被忽略，但缺字段会报错
 
 更完整的排障见：[`07_TROUBLESHOOTING.md`](07_TROUBLESHOOTING.md)。
+
 

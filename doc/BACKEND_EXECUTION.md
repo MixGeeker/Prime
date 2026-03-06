@@ -5,7 +5,7 @@
 
 ## 0. 范围与假设
 
-- 范围：只覆盖 **Compute Engine 后端服务**（Provider/Editor 的实现不作为后端里程碑 DoD；但本仓库提供 `frontend/` 与 `providers/examples/provider-simulator/` 作为参考实现与联调样例）。
+- 范围：只覆盖 **Compute Engine 后端服务**（Provider/Editor 的实现不作为后端里程碑 DoD；但本仓库提供 `frontend/`、`sdk/` 与少量历史 Provider 示例作为参考实现与联调样例）。
 - 当前假设：单租户（不含 `tenantId`）。
 - 事件系统：默认 RabbitMQ（但内部通过 `MessageBusPort` 抽象，方便未来替换）。
 - 幂等键：以 `jobId` 为准（必须写死）。
@@ -20,7 +20,7 @@
 4. `HASHING_SPEC.md`（`definitionHash/inputsHash/outputsHash` 计算规则）
 5. `VALUE_TYPES.md`（类型系统与 canonicalize 规则）
 6. `BACKEND_GUIDE.md`（DDD+六边形、数据模型、运维与清理策略）
-7. `PROVIDER_GUIDE.md` / `EDITOR_GUIDE.md`（对外接入约束，供联调）
+7. `SDK_GUIDE.md` / `EDITOR_GUIDE.md`（对外接入约束，供联调）
 
 ## 2. 里程碑（MVP → 可运营）
 
@@ -40,7 +40,7 @@
 - M9：已完成（3/3）
 - M10：已完成（7/7）— 蓝图控制流重构（去版本号）
 
-### M0. 项目骨架与工程规范（可启动）
+### M0. 项目骨架与工程规围（可启动）
 
 **目标**
 - 服务能跑起来，有基础配置与目录结构，便于后续按 DDD+六边形扩展。
@@ -116,7 +116,7 @@
 - [x] golden cases：至少覆盖（脚本：`backend` 下 `npm run test:hashing`）
   - 同语义不同顺序 → hash 相同（definitionHash）
   - default 生效/不生效 → inputsHash 不同
-  - Decimal/Ratio 的规范化一致性
+  - Decimal/Ratio 的规围化一致性
 
 **验收标准（DoD）**
 - 同 `definitionHash + inputsHash` 必须得到同 `outputsHash`（确定性）

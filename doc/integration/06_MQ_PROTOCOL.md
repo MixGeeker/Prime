@@ -1,8 +1,8 @@
-# 06｜MQ 协议（RabbitMQ：怎么发 job、怎么收结果）
+﻿# 06｜MQ 协议（RabbitMQ：怎么发 job、怎么收结果）
 
 ## 这份文档适合谁
 
-- 你要写 Provider，打算用 RabbitMQ 驱动 Engine 执行。
+- 你要写 SDK 集成层或业务模块结果消费端，打算用 RabbitMQ 驱动 Engine 执行。
 - 你看到“exchange / routingKey / queue”就头大，想先搞清楚概念再写代码。
 - 你想要可以直接复制的 Node.js 发布/订阅示例，并知道如何排查“消息到底去哪了”。
 
@@ -35,12 +35,12 @@
 - Job 成功 routingKey：`compute.job.succeeded.v1`
 - Job 失败 routingKey：`compute.job.failed.v1`
 
-Provider 通常会创建一个自己的结果队列（名字你自己定），并绑定到 `compute.events`：
+SDK 结果消费端（或业务模块）通常会创建一个自己的结果队列（名字你自己定），并绑定到 `compute.events`：
 
 - bind `compute.job.succeeded.v1`
 - bind `compute.job.failed.v1`
 
-> 提示：你会在示例 provider（`provider-simulator`）里看到同样的做法：
+> 提示：默认推荐做法是把这套逻辑封装在 `sdk/` 或你们自己的业务模块里：
 > - 发布时 assert `compute.commands`（topic）
 > - 消费时 assert `compute.events`（topic）并 bind 两个结果 routingKey
 
@@ -145,7 +145,7 @@ async function main() {
     schemaVersion: 1,
     jobId,
     definitionRef: { definitionId: "测试", definitionHash: "..." },
-    inputs: { basePrice: "100", _meta: { provider: "demo", requestedAt: new Date().toISOString() } },
+    inputs: { basePrice: "100", _meta: { source: "sdk-demo", requestedAt: new Date().toISOString() } },
     options: {},
   };
 
@@ -185,7 +185,7 @@ const amqplib = require("amqplib");
 
 const rabbitUrl = process.env.RABBITMQ_URL ?? "amqp://guest:guest@localhost:5672";
 const eventsExchange = process.env.MQ_EVENTS_EXCHANGE ?? "compute.events";
-const resultsQueue = process.env.MQ_RESULTS_QUEUE ?? "my-provider.results.v1";
+const resultsQueue = process.env.MQ_RESULTS_QUEUE ?? "pricing-module.results.v1";
 
 // 生产环境建议持久化到 DB/Redis；这里只用内存演示
 const processed = new Set();
@@ -255,7 +255,7 @@ Invoke-RestMethod "http://localhost:15672/api/queues" -Headers $headers -Method 
 > 注意：vhost 默认是 `/`，URL 里要写成 `%2F`
 
 ```bash
-curl.exe -sS -u "guest:guest" "http://localhost:15672/api/queues/%2F/my-provider.results.v1"
+curl.exe -sS -u "guest:guest" "http://localhost:15672/api/queues/%2F/pricing-module.results.v1"
 ```
 
 ---
@@ -267,4 +267,6 @@ curl.exe -sS -u "guest:guest" "http://localhost:15672/api/queues/%2F/my-provider
 - **队列没 bind**：没有绑定就收不到事件（RabbitMQ UI 可视化检查）。
 - **忘记 ack**：消费者不 ack，消息会一直堆在队列里。
 - **不做去重**：结果事件重复投递时，你会重复落库/重复回调。
+
+
 

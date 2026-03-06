@@ -1,36 +1,13 @@
-# basic-node provider 示例（最小占位）
+# basic-node（历史占位示例）
 
-本示例用于约定 **inputs 命名空间** 与 **job.requested** 的投递形态，便于后续按项目需要替换为：
-- NestJS Module / SDK（推荐起步）
-- 独立微服务（集中治理）
+本目录保留为**历史最小占位示例**，用于说明过去 Provider 侧的 `inputs` / MQ 约定。
 
-## inputs 约定（建议）
+默认推荐路径已经迁移到：
+- `sdk/README.md`
+- `sdk/examples/full-chain-demo.ts`
 
-- `inputs` 是一个单一 object：`inputs.<pinName>`（对应 BlueprintGraph v2 的 `flow.start` pins 声明）
-- **允许多余字段**：`inputs` 可携带其它字段（例如 `inputs._meta/inputs.facts/inputs.resolved`），但 Compute Engine 默认不会读取，也不会把未声明字段纳入 `inputsHash`。
-  - 若希望某些元信息进入 `inputsHash`：应把它们声明为一个 start pin（可用 `Json` 聚合字段，例如 `inputs.meta`）。
+## 仍然有效的约定
 
-## Job Requested（概念示意）
-
-```json
-{
-  "schemaVersion": 1,
-  "jobId": "01J...ULID/UUID",
-  "definitionRef": {
-    "definitionId": "pricing.retail",
-    "definitionHash": "<definitionHash>"
-  },
-  "entrypointKey": "main",
-  "inputs": {
-    "companyId": "c1",
-    "quantity": "2",
-    "meta": { "fxRateAsOf": "2026-03-02T00:00:00Z" },
-    "_meta": { "debug": "allowed but ignored by default" }
-  }
-}
-```
-
-更完整的契约请以仓库文档为准：
-- `../../../../doc/COMPUTE_ENGINE_DESIGN.md`
-- `../../../../doc/API_DESIGN.md`
-
+- `inputs` 是一个单一 object：`inputs.<pinName>`（对应 Graph v2 的 `flow.start` pins）
+- 未声明字段允许存在，但默认不会进入 `inputsHash`
+- 影响结果的元信息应进入声明过的 start pins，而不是仅放在 `_meta`

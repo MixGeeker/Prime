@@ -52,7 +52,10 @@ export class NodeCatalogService {
   }
 
   getCatalog(): NodeCatalog {
-    return this.catalog;
+    return {
+      ...this.catalog,
+      nodes: this.catalog.nodes.filter((node) => !isLegacyInputsNode(node.nodeType)),
+    };
   }
 
   getNode(nodeType: string): NodeDef | undefined {
@@ -194,6 +197,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   }
   const prototype = Object.getPrototypeOf(value) as object | null;
   return prototype === Object.prototype || prototype === null;
+}
+
+function isLegacyInputsNode(nodeType: string): boolean {
+  return nodeType.startsWith('inputs.globals.') || nodeType.startsWith('inputs.params.');
 }
 
 function readDynamicPorts(value: unknown): NodePortDef[] {

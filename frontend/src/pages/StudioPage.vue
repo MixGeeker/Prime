@@ -11,31 +11,6 @@
         </template>
 
         <el-form label-position="top" :model="{}">
-          <el-form-item label="IO 模板">
-            <el-select
-              v-model="ioTemplateId"
-              clearable
-              filterable
-              placeholder="自由蓝图模式"
-              :loading="ioTemplatesLoading"
-              style="width: 100%"
-              @change="onTemplateSelect"
-            >
-              <el-option v-for="t in ioTemplates" :key="t.id" :value="t.id" :label="t.name">
-                <div class="opt">
-                  <div class="opt-title">{{ t.name }}</div>
-                  <div class="opt-sub">
-                    <span class="muted">{{ t.id }}</span>
-                    <span class="muted"> · in: {{ t.inputs.length }} / out: {{ t.outputs.length }}</span>
-                  </div>
-                </div>
-              </el-option>
-            </el-select>
-            <div class="muted" style="margin-top: 6px">
-              自由蓝图模式可手动编辑输入/输出 pins；选择模板后，flow.start/flow.end pins 将被模板锁定。
-            </div>
-            <div v-if="ioTemplateError" class="err">{{ ioTemplateError }}</div>
-          </el-form-item>
 
           <el-form-item label="打开（已有）">
             <el-select
@@ -143,7 +118,6 @@
             ref="canvasRef"
             :catalog="catalog"
             :graph="graph"
-            :template-locked="isTemplateLocked"
             @select-node="(id) => (selectedNodeId = id)"
             @dirty="() => (dirty = true)"
           />
@@ -164,31 +138,7 @@
                 <div class="node-title">{{ selectedNodeDef?.title ?? selectedNode.nodeType }}</div>
                 <div class="node-sub">{{ selectedNode.id }} · {{ selectedNode.nodeType }}</div>
               </div>
-
-              <div v-if="showLockedPins" class="locked-pins">
-                <el-tag type="warning" effect="light">模板锁定</el-tag>
-                <div class="muted" style="margin-top: 6px">
-                  当前输入/输出 pins 由 IO 模板控制，请在左侧切换模板或清空为自由蓝图模式。
-                </div>
-                <div v-if="lockedPins.length === 0" class="muted" style="margin-top: 8px">暂无 pins。</div>
-                <div v-else class="pin-list">
-                  <div v-for="pin in lockedPins" :key="pin.name" class="pin-row">
-                    <el-tag size="small">{{ pin.valueType }}</el-tag>
-                    <span class="pin-name">{{ pin.label || pin.name }}</span>
-                    <span v-if="pin.label && pin.label !== pin.name" class="pin-key">{{ pin.name }}</span>
-                    <el-tag
-                      v-if="selectedNode.nodeType === 'flow.start' && pin.required"
-                      size="small"
-                      type="danger"
-                      effect="light"
-                    >
-                      required
-                    </el-tag>
-                  </div>
-                </div>
-              </div>
               <ParamsForm
-                v-else
                 :schema="(selectedNodeDef?.paramsSchema as any) ?? null"
                 :model-value="(selectedNode.params as any) ?? {}"
                 @update:model-value="onSelectedNodeParamsUpdate"
@@ -303,15 +253,11 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { backendApi, normalizeHttpError } from '@/api/backend';
-import { providerSimulatorApi } from '@/api/provider-simulator';
 import type {
   DefinitionDraft,
   DefinitionSummary,
   GraphJsonV2,
-  InputsCatalogItem,
-  IOTemplateItem,
   NodeCatalog,
-  PinDef,
   ValidationIssue,
 } from '@/engine/types';
 import { createEmptyGraph } from '@/features/studio/graph';
@@ -346,11 +292,6 @@ const graphTab = ref<'locals' | 'runner'>('locals');
 const paletteQuery = ref('');
 const openCategories = ref<string[]>([]);
 const showInternalNodes = ref(false);
-const ioTemplates = ref<IOTemplateItem[]>([]);
-const ioTemplatesLoading = ref(false);
-const ioTemplateId = ref<string | null>(null);
-const ioTemplateError = ref<string | null>(null);
-
 const runnerConfigText = ref('{}');
 const runnerConfigError = ref<string | null>(null);
 const outputSchemaText = ref('{}');
@@ -387,26 +328,6 @@ const selectedNodeDef = computed(() => {
   const n = selectedNode.value;
   if (!n || !catalog.value) return null;
   return (catalog.value.nodes as any[]).find((d) => d.nodeType === n.nodeType) ?? null;
-});
-
-const isTemplateLocked = computed(() => Boolean(ioTemplateId.value));
-const showLockedPins = computed(() => {
-  const node = selectedNode.value;
-  if (!node) return false;
-  return isTemplateLocked.value && (node.nodeType === 'flow.start' || node.nodeType === 'flow.end');
-});
-
-const lockedPins = computed<PinDef[]>(() => {
-  const node = selectedNode.value;
-  if (!node || !isPlainObject(node.params)) return [];
-
-  if (node.nodeType === 'flow.start') {
-    return normalizePinDefs((node.params as any).dynamicOutputs) as PinDef[];
-  }
-  if (node.nodeType === 'flow.end') {
-    return normalizePinDefs((node.params as any).dynamicInputs) as PinDef[];
-  }
-  return [];
 });
 
 const paletteCategories = computed(() => {
@@ -463,78 +384,7 @@ function safeParseJson(text: string, field: string): { ok: true; value: any } | 
   }
 }
 
-function normalizeTemplateId(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const normalized = value.trim();
-  return normalized ? normalized : null;
-}
 
-function setGraphTemplateId(templateId: string | null) {
-  const meta = isPlainObject(graph.value.metadata) ? graph.value.metadata : {};
-  graph.value.metadata = {
-    ...meta,
-    ioTemplateId: templateId,
-  };
-}
-
-function normalizeTemplatePins(items: InputsCatalogItem[], side: 'input' | 'output'): PinDef[] {
-  const pins: PinDef[] = [];
-  const seen = new Set<string>();
-  for (const item of items) {
-    const name = typeof item.name === 'string' ? item.name.trim() : '';
-    const label = typeof item.label === 'string' && item.label.trim() ? item.label.trim() : undefined;
-    if (!name || seen.has(name)) continue;
-    seen.add(name);
-    const pin: PinDef = {
-      name,
-      label,
-      valueType: item.valueType,
-    };
-    if (side === 'input') {
-      pin.required = true;
-    }
-    pins.push(pin);
-  }
-  return pins;
-}
-
-async function onTemplateSelect(rawTemplateId: string | null | undefined) {
-  const templateId = normalizeTemplateId(rawTemplateId);
-  ioTemplateId.value = templateId;
-  setGraphTemplateId(templateId);
-
-  if (!templateId) {
-    dirty.value = true;
-    return;
-  }
-
-  const template = ioTemplates.value.find((it) => it.id === templateId);
-  if (!template) {
-    ElMessage.warning('未找到对应模板，请刷新模板列表后重试');
-    return;
-  }
-
-  const startNode = graph.value.nodes.find((n) => n.nodeType === 'flow.start');
-  const endNode = graph.value.nodes.find((n) => n.nodeType === 'flow.end');
-  if (!startNode || !endNode) {
-    ElMessage.error('当前图缺少 flow.start 或 flow.end，无法应用 IO 模板');
-    return;
-  }
-
-  const startParams = isPlainObject(startNode.params) ? startNode.params : {};
-  const endParams = isPlainObject(endNode.params) ? endNode.params : {};
-
-  updateNodeParams(startNode.id, {
-    ...startParams,
-    dynamicOutputs: normalizeTemplatePins(template.inputs, 'input'),
-  });
-  updateNodeParams(endNode.id, {
-    ...endParams,
-    dynamicInputs: normalizeTemplatePins(template.outputs, 'output'),
-  });
-
-  dirty.value = true;
-}
 
 function buildCallDefinitionRefKey(params: Record<string, unknown> | undefined): string | null {
   if (!isPlainObject(params)) return null;
@@ -576,20 +426,6 @@ async function loadCatalog() {
     ElMessage.error(normalizeHttpError(e));
   } finally {
     catalogLoading.value = false;
-  }
-}
-
-async function loadIOTemplates() {
-  ioTemplatesLoading.value = true;
-  ioTemplateError.value = null;
-  try {
-    const catalog = await providerSimulatorApi.getIOTemplates();
-    ioTemplates.value = Array.isArray(catalog.templates) ? catalog.templates : [];
-  } catch (e) {
-    ioTemplates.value = [];
-    ioTemplateError.value = normalizeHttpError(e);
-  } finally {
-    ioTemplatesLoading.value = false;
   }
 }
 
@@ -645,11 +481,6 @@ function applyDraft(draft: DefinitionDraft) {
     seedCallDefinitionSyncStateFromGraph();
     dirty.value = false;
   }
-
-  const draftTemplateId = normalizeTemplateId(
-    isPlainObject((graph.value as any).metadata) ? ((graph.value as any).metadata.ioTemplateId as unknown) : null,
-  );
-  ioTemplateId.value = draftTemplateId;
 
   runnerConfigText.value = JSON.stringify(draft.runnerConfig ?? {}, null, 2);
   outputSchemaText.value = JSON.stringify(draft.outputSchema ?? {}, null, 2);
@@ -878,10 +709,6 @@ async function syncCallDefinitionPinsIfNeeded(nodeId: string) {
 function onSelectedNodeParamsUpdate(v: Record<string, unknown> | null) {
   const node = selectedNode.value;
   if (!node) return;
-  if (isTemplateLocked.value && (node.nodeType === 'flow.start' || node.nodeType === 'flow.end')) {
-    ElMessage.warning('当前输入/输出 pins 已被模板锁定，请先切换为自由蓝图模式');
-    return;
-  }
   const nextParams = v ?? {};
   nodeParamsError.value = nodePinNameValidationError(node.nodeType, nextParams);
   updateNodeParams(node.id, nextParams);
@@ -1077,7 +904,6 @@ async function publish() {
 }
 
 onMounted(() => {
-  void loadIOTemplates();
   void loadCatalog();
   void refreshDefinitions();
 

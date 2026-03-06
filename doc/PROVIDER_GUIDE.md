@@ -1,118 +1,18 @@
-# Compute Inputs Provider 文档（制作与集成）
+# Provider Guide（迁移说明）
 
-> Inputs Provider 由集成方/业务方实现与维护。它的职责是：聚合业务 facts、执行所有 IO（DB/HTTP/gRPC）、把结果规范化为标准 `inputs`，并投递 `compute.job.requested.v1` 给 Compute Engine。
+> 本文件保留历史文件名，方便旧链接继续可达。
 
-另见：
-- Graph schema（Graph v2）：`GRAPH_SCHEMA.md`
-- Hash 规范：`HASHING_SPEC.md`
-- 值类型：`VALUE_TYPES.md`
+`Provider` 不再是本项目推荐的默认集成形态。新的默认路径是：
+- 业务模块自行构建 flat `inputs`
+- 使用 `sdk/` 发送 job / 订阅结果
 
----
+请改读：
+- `SDK_GUIDE.md`
+- `../sdk/README.md`
+- `integration/04_SDK_INTEGRATION.md`
 
-## 1. Provider 的边界
-
-### 1.1 Provider 负责
-- 读取/订阅业务模块数据：汇率、公司配置、商品/库存/成本、对手价抓取等。
-- 解析与标准化：Decimal（字符串）规范化、缺失值与降级策略；币种/方向等领域语义由集成方自行管理。
-- 组装 job payload 的 `inputs`（含可选的 `inputs._meta`），并发送 job（MQ 或调用一个 job sender SDK）。
-- （可选）输出 Inputs Catalog 给 Editor，用于输入字段选择与提示。
-
-### 1.2 Provider 不负责
-- 不做图执行与确定性计算（由 Compute Engine 做）。
-- 不直接写入业务结果（结果落地由业务模块消费 `job.succeeded/failed` 决定）。
-
-### 1.3 仓库内参考实现（可运行）
-- Provider Simulator：`providers/examples/provider-simulator/`
-- 业务样例蓝图：`providers/examples/tax-discount/`
-
----
-
-## 2. 标准 inputs 结构（Graph v2）
-
-Graph v2 的输入契约由蓝图的 `flow.start` 动态 pins 定义（Pin 即 inputs key）。因此 Provider 投递 job 时建议使用**单一 inputs object**：
-
-```json
-{
-  "inputs": {
-    "companyName": "Prime Inc.",
-    "taxRate": "0.13",
-    "payload": { "price": { "base": "100" } },
-    "_meta": { "asOf": "2026-03-03T00:00:00Z" }
-  }
-}
-```
-
-规则与建议：
-- **Pin as contract**：`inputs.<name>` 的 `<name>` 必须与 `flow.start.params.dynamicOutputs[].name` 对齐（类型也必须对齐）。
-- **允许多余字段**：`inputs` 可携带其它字段（例如 `inputs._meta`），引擎会忽略未声明字段，它们不会进入 `inputsHash`，也默认不会在图内可读。
-- 若希望某些元信息进入 `inputsHash` 或在图内可读，应：
-  - 把它声明为一个 start pin（通常用 `Json` 聚合，例如 `meta: Json`）
-  - 并通过 `inputs.meta` 传入
-
-> 你仍然可以在 Provider 内部把数据分为“全局 facts / 请求参数”，但在投递时应**合并**成一个 flat 的 `inputs` object。
-
----
-
-## 3. Decimal 规范（建议）
-
-> Compute Engine 会对 inputs 做 canonicalize，但 Provider 侧也应输出稳定格式，避免口径漂移。类型系统规范见 `VALUE_TYPES.md`。
-
-### 3.1 Decimal（推荐）
-- 使用 **string** 表达（例如 `"123.45"`），避免 JS 浮点误差。
-- 禁止指数表示（`"1e-7"`），禁止多余空格；建议在 Provider 侧做一次正则校验。
-- `number` 仅作为兼容输入：会在 JS JSON 解析阶段变成 IEEE754 浮点，可能已丢精度。
-
-### 3.2 Ratio / Percent
-- 建议统一用 `Ratio`（0..1）字符串：`"0.15"`，不要混用 `15`（percent）与 `0.15`。
-
-### 3.3 Money/Rate/Currency 等领域语义
-Compute Engine MVP 不内置这些领域语义；建议两种做法（二选一）：
-- **拆字段（推荐）**：金额用 Decimal（amount）+ 额外的 String（currency/from/to 等）。
-- **用 `Json`**：例如 `{ amount: "123.45", currency: "USD" }`，但引擎不会对其结构与内部 decimal 做 typed canonicalize（hash 稳定性由你们保证）。
-
----
-
-## 4. Job 投递（集成方式）
-
-### 4.1 MQ 投递（推荐）
-Provider 直接发布 `compute.job.requested.v1` 到 `compute.commands`（见 `API_DESIGN.md`）。
-
-建议：
-- `jobId` 必填（UUID/ULID），并且**在重试/重发时复用同一个 jobId**（幂等键以 jobId 为准）。
-- `messageId` 可选但建议（追踪/排障用；即使变化也不影响幂等）。
-- `correlationId` 从业务链路透传（可选但建议）。
-
-### 4.2 SDK/模块方式（可选）
-平台团队提供一个 `@compute-engine/job-sender` 包：
-- 负责：schema 校验、headers 规范、重试策略、trace/correlation 透传。
-- Provider 只需要：`sendJob({ jobId, definitionRef, inputs, options })`。
-
----
-
-## 5. Inputs Catalog（供 Editor 使用，可选）
-
-### 5.1 目的
-让 Editor 能“选输入字段而不是手写 key”，并在建图时做类型提示/示例展示。
-
-### 5.2 建议格式（v2）
-
-```json
-{
-  "schemaVersion": 2,
-  "inputs": [
-    { "name": "companyName", "valueType": "String", "description": "公司名称", "example": "Prime Inc." },
-    { "name": "taxRate", "valueType": "Ratio", "description": "税率（0..1）", "example": "0.13" }
-  ]
-}
-```
-
-> Editor 可以把 catalog item 直接映射为 `flow.start` 的一个动态 pin（并允许用户进一步调整 required/defaultValue）。
-
----
-
-## 6. 回放与对账
-
-为了可追溯：
-- Provider 必须把**影响结果**的内容注入到本次 Definition 声明的 start pins（否则引擎不会读取，也不会进入 `inputsHash`）。
-- `inputs._meta` 允许携带审计信息，但默认不进入 `inputsHash`；需要对账/回放的字段应进入声明项（或聚合到一个 `Json` 声明项里）。
-
+如果你仍在维护历史 Provider 服务，可继续遵守以下底线：
+- 输入契约只以 `flow.start` pins 为准
+- 影响结果的字段必须进入声明过的 start pins
+- `_meta` 默认不进入 `inputsHash`
+- 结果消费必须按 `messageId` 去重
