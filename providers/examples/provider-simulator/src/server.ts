@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import type { MqClient } from './mq';
 import type { Storage } from './storage';
-import type { InputsCatalogV2, JobRequestedV1, StoredJob } from './types';
+import type { IOTemplateCatalogV1, InputsCatalogV2, JobRequestedV1, StoredJob } from './types';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object') return false;
@@ -36,30 +36,35 @@ export async function createServer(params: {
       inputs: [
         {
           name: 'companyName',
+          label: '公司名称',
           valueType: 'String',
           description: '公司名称（示例：更像“全局 fact”，但在 Graph v2 中就是一个 inputs key）',
           example: 'Prime Inc.',
         },
         {
           name: 'taxRate',
+          label: '税率',
           valueType: 'Ratio',
           description: '税率（0..1）',
           example: '0.13',
         },
         {
           name: 'fxRate',
+          label: '汇率',
           valueType: 'Decimal',
           description: '汇率（示例）',
           example: '7.1234',
         },
         {
           name: 'productId',
+          label: '商品ID',
           valueType: 'String',
           description: '商品 ID（示例：更像“请求参数”，但在 Graph v2 中就是一个 inputs key）',
           example: 'p_123',
         },
         {
           name: 'payload',
+          label: '业务入参',
           valueType: 'Json',
           description: '业务入参（结构化对象，示例）',
           example: {
@@ -69,9 +74,85 @@ export async function createServer(params: {
         },
         {
           name: 'asOf',
+          label: '生效时间',
           valueType: 'DateTime',
           description: '生效时间点（ISO8601）',
           example: '2026-03-03T00:00:00Z',
+        },
+      ],
+    };
+
+    return catalog;
+  });
+
+  app.get('/catalog/io', async () => {
+    const catalog: IOTemplateCatalogV1 = {
+      schemaVersion: 1,
+      templates: [
+        {
+          id: 'tax-discount-v1',
+          name: '税费折扣计算',
+          description: '含税折扣最终定价场景',
+          inputs: [
+            {
+              name: 'basePrice',
+              label: '原始价格',
+              valueType: 'Decimal',
+              description: '原始价格',
+              example: '100',
+            },
+            {
+              name: 'taxRate',
+              label: '税率',
+              valueType: 'Ratio',
+              description: '税率（0..1）',
+              example: '0.13',
+            },
+            {
+              name: 'discountRate',
+              label: '折扣比例',
+              valueType: 'Ratio',
+              description: '折扣比例',
+              example: '0.10',
+            },
+            {
+              name: 'asOf',
+              label: '生效时间',
+              valueType: 'DateTime',
+              description: '生效时间点（ISO8601）',
+              example: '2026-03-03T00:00:00Z',
+            },
+          ],
+          outputs: [
+            {
+              name: 'baseAmount',
+              label: '原始金额',
+              valueType: 'Decimal',
+              description: '原始金额',
+              example: '100.00',
+            },
+            {
+              name: 'discountAmount',
+              label: '折扣金额',
+              valueType: 'Decimal',
+              description: '折扣金额',
+              example: '10.00',
+            },
+            {
+              name: 'taxAmount',
+              label: '税额',
+              valueType: 'Decimal',
+              description: '税额',
+              example: '11.70',
+            },
+            {
+              name: 'finalPrice',
+              label: '最终价格',
+              valueType: 'Decimal',
+              description: '最终价格',
+              example: '101.70',
+            },
+          ],
         },
       ],
     };

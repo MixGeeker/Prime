@@ -58,6 +58,7 @@ export type ValueType = 'Decimal' | 'Ratio' | 'String' | 'Boolean' | 'DateTime' 
 
 export type InputsCatalogItem = {
   name: string;
+  label?: string;
   valueType: ValueType;
   description?: string;
   example?: unknown;
@@ -66,4 +67,17 @@ export type InputsCatalogItem = {
 export type InputsCatalogV2 = {
   schemaVersion: 2;
   inputs: InputsCatalogItem[];
+};
+
+export type IOTemplateItem = {
+  id: string;
+  name: string;
+  description?: string;
+  inputs: InputsCatalogItem[];
+  outputs: InputsCatalogItem[];
+};
+
+export type IOTemplateCatalogV1 = {
+  schemaVersion: 1;
+  templates: IOTemplateItem[];
 };

@@ -15,20 +15,22 @@ defineProps<{
 
 <style scoped>
 .btn {
-  width: 100%;
-  border: 1px dashed rgba(255, 255, 255, 0.35);
-  border-radius: 8px;
-  padding: 6px 10px;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.92);
+  width: calc(100% - 16px);
+  margin: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 8px;
+  background: var(--el-fill-color-dark);
+  color: var(--el-text-color-regular);
   cursor: pointer;
-  font-size: 12px;
-  line-height: 16px;
+  font-size: 11px;
+  font-weight: 600;
+  transition: background 0.1s, color 0.1s;
 }
 
 .btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.55);
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
 }
 </style>
 

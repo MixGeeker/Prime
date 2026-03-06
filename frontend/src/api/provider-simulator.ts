@@ -1,6 +1,6 @@
 import axios, { type AxiosRequestConfig } from 'axios';
 import { useSettingsStore } from '@/stores/settings';
-import type { InputsCatalogV2 } from '@/engine/types';
+import type { IOTemplateCatalogV1, InputsCatalogV2 } from '@/engine/types';
 
 async function request<T>(config: AxiosRequestConfig): Promise<T> {
   const settings = useSettingsStore();
@@ -19,6 +19,10 @@ export const providerSimulatorApi = {
 
   getInputsCatalog(): Promise<InputsCatalogV2> {
     return request({ method: 'GET', url: '/catalog/inputs' });
+  },
+
+  getIOTemplates(): Promise<IOTemplateCatalogV1> {
+    return request({ method: 'GET', url: '/catalog/io' });
   },
 
   getGlobalFacts(): Promise<Record<string, unknown>> {

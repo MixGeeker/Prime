@@ -27,6 +27,7 @@ type Schemes = GetSchemes<ClassicPreset.Node, Connection>;
 const props = defineProps<{
   catalog: NodeCatalog;
   graph: GraphJsonV2;
+  templateLocked?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -48,6 +49,18 @@ type SocketMeta = {
   socketName: string;
 };
 const socketMetaByKey = new Map<string, SocketMeta>();
+
+type NodeVisualGroup =
+  | 'flow'
+  | 'input'
+  | 'output'
+  | 'local'
+  | 'math'
+  | 'compare'
+  | 'json'
+  | 'text'
+  | 'logic'
+  | 'default';
 
 function socketMetaKey(nodeId: string, side: 'input' | 'output', key: string): string {
   return `${nodeId}::${side}::${key}`;
@@ -130,20 +143,25 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
-function readDynamicPorts(value: unknown): Array<{ name: string; valueType: ValueType }> {
+function readDynamicPorts(value: unknown): Array<{ name: string; label?: string; valueType: ValueType }> {
   if (!Array.isArray(value)) return [];
-  const ports: Array<{ name: string; valueType: ValueType }> = [];
+  const ports: Array<{ name: string; label?: string; valueType: ValueType }> = [];
   const seen = new Set<string>();
   for (const item of value) {
     if (!isPlainObject(item)) continue;
     const name = item['name'];
+    const label = item['label'];
     const valueType = item['valueType'];
     if (typeof name !== 'string' || !name.trim()) continue;
     if (!isValueType(valueType)) continue;
     const normalizedName = name.trim();
     if (seen.has(normalizedName)) continue;
     seen.add(normalizedName);
-    ports.push({ name: normalizedName, valueType });
+    ports.push({
+      name: normalizedName,
+      label: typeof label === 'string' && label.trim() ? label.trim() : undefined,
+      valueType,
+    });
   }
   return ports;
 }
@@ -233,6 +251,84 @@ function buildNodeLabel(def: NodeDef, graphNode: GraphNode): string {
   return def.title;
 }
 
+function classifyNodeGroup(nodeType: string): NodeVisualGroup {
+  if (nodeType.startsWith('flow.')) return 'flow';
+  if (nodeType.startsWith('inputs.')) return 'input';
+  if (nodeType.startsWith('outputs.')) return 'output';
+  if (nodeType.startsWith('locals.')) return 'local';
+  if (nodeType.startsWith('math.')) return 'math';
+  if (nodeType.startsWith('compare.')) return 'compare';
+  if (nodeType.startsWith('json.')) return 'json';
+  if (nodeType.startsWith('string.') || nodeType.startsWith('text.')) return 'text';
+  if (nodeType.startsWith('boolean.') || nodeType.startsWith('logic.')) return 'logic';
+  return 'default';
+}
+
+function getNodeAccent(group: NodeVisualGroup) {
+  switch (group) {
+    case 'flow':
+      return 'var(--el-color-danger)';
+    case 'input':
+    case 'output':
+      return 'var(--el-color-primary)';
+    case 'local':
+      return 'var(--el-color-warning)';
+    case 'math':
+      return 'var(--el-color-success)';
+    case 'compare':
+    case 'logic':
+      return 'var(--el-color-info)';
+    case 'json':
+    case 'text':
+      return 'var(--el-color-primary-light-3)';
+    default:
+      return 'var(--el-text-color-secondary)';
+  }
+}
+
+function getSocketAccent(socketName: string) {
+  switch (socketName) {
+    case 'exec':
+      return 'var(--el-text-color-primary)';
+    case 'Decimal':
+    case 'Ratio':
+      return 'var(--el-color-success)';
+    case 'String':
+      return 'var(--el-color-warning)';
+    case 'Boolean':
+      return 'var(--el-color-danger)';
+    case 'DateTime':
+      return 'var(--el-color-primary)';
+    case 'Json':
+      return 'var(--el-color-info)';
+    default:
+      return 'var(--el-text-color-secondary)';
+  }
+}
+
+function applyNodePresentation(element: HTMLElement, graphNode: GraphNode) {
+  const group = classifyNodeGroup(graphNode.nodeType);
+  const accent = getNodeAccent(group);
+  element.dataset.nodeGroup = group;
+  element.dataset.nodeType = graphNode.nodeType;
+  element.style.setProperty('--ce-node-accent', accent);
+}
+
+function applySocketPresentation(element: HTMLElement, socketName: string, side: SocketMeta['side']) {
+  element.dataset.socketType = socketName;
+  element.dataset.socketSide = side;
+  element.style.setProperty('--ce-socket-accent', getSocketAccent(socketName));
+}
+
+function applyConnectionPresentation(element: HTMLElement, conn: Connection) {
+  const kind = isExecKey(String(conn.sourceOutput)) || isExecKey(String(conn.targetInput)) ? 'exec' : 'value';
+  element.dataset.connectionKind = kind;
+  element.style.setProperty(
+    '--ce-connection-stroke',
+    kind === 'exec' ? 'var(--el-text-color-primary)' : 'var(--el-color-info)',
+  );
+}
+
 function buildReteNode(def: NodeDef, graphNode: GraphNode) {
   const resolvedDef = resolveNodeDefForGraphNode(def, graphNode);
   const node = new ClassicPreset.Node(buildNodeLabel(def, graphNode));
@@ -242,13 +338,13 @@ function buildReteNode(def: NodeDef, graphNode: GraphNode) {
   for (const input of resolvedDef.inputs) {
     node.addInput(
       portKey('in', input.name) as any,
-      new ClassicPreset.Input(sockets[input.valueType], input.name, false),
+      new ClassicPreset.Input(sockets[input.valueType], input.label ?? input.name, false),
     );
   }
   for (const output of resolvedDef.outputs) {
     node.addOutput(
       portKey('out', output.name) as any,
-      new ClassicPreset.Output(sockets[output.valueType], output.name, true),
+      new ClassicPreset.Output(sockets[output.valueType], output.label ?? output.name, true),
     );
   }
 
@@ -267,7 +363,7 @@ function buildReteNode(def: NodeDef, graphNode: GraphNode) {
     );
   }
 
-  if (graphNode.nodeType === 'flow.start' || graphNode.nodeType === 'flow.end') {
+  if (!props.templateLocked && (graphNode.nodeType === 'flow.start' || graphNode.nodeType === 'flow.end')) {
     node.addControl(
       'add_pin' as any,
       {
@@ -285,7 +381,6 @@ function buildReteNode(def: NodeDef, graphNode: GraphNode) {
 
 function uniqueName(existing: string[], prefix = 'pin'): string {
   let i = 1;
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     const name = `${prefix}${i}`;
     if (!existing.includes(name)) return name;
@@ -448,8 +543,17 @@ async function init() {
 
   // 记录 socket 元信息（用于拖线时的类型兼容提示）
   area.addPipe((context) => {
-    if (context.type === 'render') {
+    if (context.type === 'render' || context.type === 'rendered') {
       const d = context.data as any;
+      if (d?.type === 'node') {
+        const graphNode = props.graph.nodes.find((n) => n.id === String(d.payload?.id));
+        if (graphNode) {
+          applyNodePresentation(d.element as HTMLElement, graphNode);
+        }
+      }
+      if (d?.type === 'connection') {
+        applyConnectionPresentation(d.element as HTMLElement, d.payload as Connection);
+      }
       if (d?.type === 'socket') {
         const meta: SocketMeta = {
           element: d.element as HTMLElement,
@@ -459,6 +563,7 @@ async function init() {
           socketName: String(d.payload?.name ?? ''),
         };
         socketMetaByKey.set(socketMetaKey(meta.nodeId, meta.side, meta.key), meta);
+        applySocketPresentation(meta.element, meta.socketName, meta.side);
       }
     }
     return context;
@@ -813,28 +918,150 @@ onBeforeUnmount(() => {
 .canvas {
   width: 100%;
   height: 100%;
-  border-radius: 12px;
+  position: relative;
   overflow: hidden;
-  border: 1px solid var(--el-border-color-lighter);
-  background: var(--el-fill-color-lighter);
+  background-color: var(--el-bg-color-page);
+  background-image:
+    linear-gradient(var(--el-border-color-lighter) 1px, transparent 1px),
+    linear-gradient(90deg, var(--el-border-color-lighter) 1px, transparent 1px),
+    linear-gradient(var(--el-border-color-dark) 1px, transparent 1px),
+    linear-gradient(90deg, var(--el-border-color-dark) 1px, transparent 1px);
+  background-size: 20px 20px, 20px 20px, 100px 100px, 100px 100px;
+  background-position: -1px -1px;
+}
+
+:deep(.node) {
+  width: 220px !important;
+  padding: 0 !important;
+  border-radius: 6px !important;
+  border: 1px solid var(--el-border-color-darker) !important;
+  background: var(--el-bg-color-overlay) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+  transition: border-color 0.1s, box-shadow 0.1s !important;
+}
+
+:deep(.node:hover) {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15) !important;
+}
+
+:deep(.node.selected) {
+  border-color: var(--el-color-primary) !important;
+  box-shadow:
+    0 0 0 1px var(--el-color-primary),
+    0 6px 16px rgba(0, 0, 0, 0.15) !important;
+}
+
+:deep(.node .title) {
+  margin: 0 !important;
+  padding: 6px 12px !important;
+  background: var(--ce-node-accent, var(--el-color-info)) !important;
+  color: #ffffff !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  line-height: 1.2 !important;
+  border-bottom: 1px solid var(--el-border-color-darker);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+:deep(.node .input),
+:deep(.node .output) {
+  display: flex !important;
+  align-items: center;
+  margin: 0 !important;
+  padding: 4px 8px !important;
+  min-height: 28px;
+  background: transparent !important;
+}
+
+:deep(.node .input:hover),
+:deep(.node .output:hover) {
+  background: var(--el-fill-color-light) !important;
+}
+
+:deep(.node .output) {
+  justify-content: flex-end;
+}
+
+:deep(.node .input-title),
+:deep(.node .output-title) {
+  margin: 0 !important;
+  color: var(--el-text-color-regular) !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  line-height: 1 !important;
+}
+
+:deep(.node .input-socket) {
+  margin-left: -14px !important;
+  margin-right: 8px !important;
+}
+
+:deep(.node .output-socket) {
+  margin-right: -14px !important;
+  margin-left: 8px !important;
+}
+
+:deep(.node .control) {
+  padding: 4px !important;
+}
+
+:deep(.socket) {
+  width: 12px !important;
+  height: 12px !important;
+  margin: 0 !important;
+  border: 1px solid var(--el-border-color-darker) !important;
+  background: var(--ce-socket-accent, var(--el-color-primary)) !important;
+  box-shadow: none !important;
+  transition: transform 0.1s !important;
+  border-radius: 50% !important;
+}
+
+:deep(.socket:hover) {
+  transform: scale(1.2);
+}
+
+:deep(.socket[data-socket-type='exec']) {
+  border-radius: 2px !important;
+  transform: rotate(45deg);
+}
+
+:deep(.socket[data-socket-type='exec']:hover) {
+  transform: rotate(45deg) scale(1.2);
+}
+
+:deep(svg[data-testid='connection'] path) {
+  stroke: var(--ce-connection-stroke, var(--el-color-info)) !important;
+  stroke-width: 3px !important;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none !important;
+  filter: none !important;
+  transition:
+    stroke 0.1s,
+    stroke-width 0.1s;
+}
+
+:deep(svg[data-connection-kind='exec'] path) {
+  stroke-width: 4px !important;
+}
+
+:deep(svg[data-testid='connection']:hover path) {
+  stroke-width: 5px !important;
 }
 
 :deep(.socket.ce-socket-incompatible) {
-  opacity: 0.25;
-  filter: grayscale(1);
+  opacity: 0.3;
 }
 
 :deep(.socket.ce-socket-compatible) {
   opacity: 1;
-  filter: none;
-  border-color: var(--el-color-success);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--el-color-success) 40%, transparent);
+  border-color: var(--el-color-success) !important;
+  box-shadow: 0 0 0 2px var(--el-color-success-light-5) !important;
 }
 
 :deep(.socket.ce-socket-source) {
   opacity: 1;
-  filter: none;
-  border-color: var(--el-color-primary);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--el-color-primary) 40%, transparent);
+  border-color: var(--el-color-primary) !important;
+  box-shadow: 0 0 0 2px var(--el-color-primary-light-5) !important;
 }
 </style>

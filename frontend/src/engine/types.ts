@@ -18,6 +18,7 @@ export interface RoundingDef {
 
 export interface NodePortDef {
   name: string;
+  label?: string;
   valueType: ValueType;
 }
 
@@ -126,6 +127,7 @@ export interface ListResponse<T> {
 
 export interface InputsCatalogItem {
   name: string;
+  label?: string;
   valueType: ValueType;
   description?: string;
   example?: unknown;
@@ -134,4 +136,17 @@ export interface InputsCatalogItem {
 export interface InputsCatalogV2 {
   schemaVersion: 2;
   inputs: InputsCatalogItem[];
+}
+
+export interface IOTemplateItem {
+  id: string;
+  name: string;
+  description?: string;
+  inputs: InputsCatalogItem[];
+  outputs: InputsCatalogItem[];
+}
+
+export interface IOTemplateCatalogV1 {
+  schemaVersion: 1;
+  templates: IOTemplateItem[];
 }
